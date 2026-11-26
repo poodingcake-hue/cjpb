@@ -4,7 +4,7 @@
 Playwright 브라우저 세션으로 호출해서, 채널별 편성(방송시간·프로그램·상품)을 cj_schedule.csv 로 저장합니다.
 
 환경 변수
-  CJ_DAYS   오늘부터 며칠치를 받을지 (기본 2 = 오늘+내일)
+  CJ_DAYS   오늘부터 며칠치를 저장할지 (기본: 오늘부터 CJ가 제공하는 마지막 날까지 전부)
   CJ_DATE   특정 날짜만 받을 때 YYYYMMDD (설정하면 CJ_DAYS 무시)
 
 '함께 방송하는 상품'은 편성표 API에 1개만 들어 있어서, 화면의 '더보기'와 같은
@@ -150,11 +150,14 @@ async def parse(request, data, bd_date, sem):
 
 
 def target_dates():
+    """저장할 날짜. 기본은 None = 오늘부터 CJ가 제공하는 마지막 날짜까지(아래 main 에서 결정)."""
     if os.environ.get("CJ_DATE"):
         return [os.environ["CJ_DATE"]]
-    days = int(os.environ.get("CJ_DAYS", "2"))
-    today = datetime.datetime.now(KST).date()
-    return [(today + datetime.timedelta(days=i)).strftime("%Y%m%d") for i in range(days)]
+    if os.environ.get("CJ_DAYS"):
+        days = int(os.environ["CJ_DAYS"])
+        today = datetime.datetime.now(KST).date()
+        return [(today + datetime.timedelta(days=i)).strftime("%Y%m%d") for i in range(days)]
+    return None
 
 
 async def main():
@@ -169,13 +172,16 @@ async def main():
 
         sem = asyncio.Semaphore(5)  # 동시에 5개까지만 요청
         targets = target_dates()
+        today = datetime.datetime.now(KST).strftime("%Y%m%d")
 
-        # 이전/다음 방송 계산용: CJ가 편성표를 제공하는 날짜 전체(보통 지난 3일 ~ 다음 1주)
-        window = list(targets)
+        # 이전/다음 방송 계산용: CJ가 편성표를 제공하는 날짜 전체(보통 지난 3일 ~ 다음 10일)
+        window = list(targets or [today])
         r = await context.request.get(DATE_LIST_URL, headers={"Referer": PAGE_URL})
         if r.ok:
             dl = ((await r.json()) or {}).get("result") or []
             window = sorted(set(window) | {x["bdDtm"] for x in dl if x.get("activeYn") == "Y"})
+        if targets is None:  # 기본: 오늘 이후 전부
+            targets = [d for d in window if d >= today]
         print(f"🗓️ 저장 날짜 {targets}, 이전/다음 방송 계산 범위 {window[0]}~{window[-1]} ({len(window)}일)")
 
         window_rows = []

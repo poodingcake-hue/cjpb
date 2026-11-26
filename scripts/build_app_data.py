@@ -121,7 +121,9 @@ def main():
             "next": r.get("다음방송", ""),
             "owned": code in inv_items,
         })
-    out = sorted(slots.values(), key=lambda s: (s["date"], s["start"], s["channel"]))
+    today = datetime.datetime.now(KST).strftime("%Y-%m-%d")
+    out = sorted((s for s in slots.values() if s["date"] >= today),  # 오늘 이후 편성만
+                 key=lambda s: (s["date"], s["start"], s["channel"]))
     with open(SCHED_PATH, "w", encoding="utf-8") as f:
         json.dump({"updatedAt": now, "slots": out}, f, ensure_ascii=False)
 
