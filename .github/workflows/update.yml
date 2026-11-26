@@ -1,0 +1,51 @@
+name: Update CJ Data
+
+# CJ 편성표 + 상품 상세를 받아서 앱 데이터(frontend/public/*.json)를 갱신합니다.
+# 재고(inventory.json)는 새 상품만 추가하고 기존 수량은 건드리지 않습니다.
+on:
+  schedule:
+    # 한국시간 06:17, 11:17, 16:17, 21:17
+    - cron: "17 21,2,7,12 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: update-data
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+          cache-dependency-path: crawler/requirements.txt
+
+      - name: 패키지 설치
+        run: |
+          pip install -r crawler/requirements.txt
+          playwright install chromium --with-deps
+
+      - name: 편성표 수집
+        working-directory: data
+        run: python ../crawler/cj_crawler.py
+
+      - name: 상품 상세 수집 (색상·사이즈·A/S)
+        working-directory: data
+        run: python ../crawler/cj_items.py
+
+      - name: 앱 데이터 만들기 (재고 추가 + 편성 매칭)
+        run: python scripts/build_app_data.py
+
+      - name: 커밋
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "🤖 CJ 편성·재고 데이터 업데이트"
+          file_pattern: "data/*.csv frontend/public/*.json"
