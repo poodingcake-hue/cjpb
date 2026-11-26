@@ -2,7 +2,7 @@
 
 frontend/public/data.json        롯데 앱과 같은 형식: items = 상품(isMaster) + 편성(isMaster=false)
                                  - 편성: 오늘 이후, TV LIVE(CJ온스타일)만, 02:00~05:59 시작 방송 제외
-                                 - 상품: 위 편성에 나오고 A/S 책임자에 'CJ ENM'/'CJ온스타일'이 들어간 상품
+                                 - 상품: 위 편성에 나오고 A/S 책임자에 'CJ'가 들어간 상품 (CJ몰 고객센터 제외)
 frontend/public/seed_stock.json  초기 임의 재고 {상품코드: [{color,size,qty}]}
                                  - 처음 보는 상품·옵션만 추가(0~8 임의), 기존 값은 절대 바꾸지 않음
 
@@ -45,9 +45,9 @@ SKIP_HOURS = range(2, 6)
 
 
 def is_ours(as_text):
-    """A/S 책임자에 'CJ ENM' 또는 'CJ온스타일'이 들어가면 우리 상품. (CJ몰 고객센터 등은 제외)"""
+    """A/S 책임자에 'CJ'가 들어가면 우리 상품. 단 'CJ몰'(CJ몰 고객센터)은 제외."""
     t = re.sub(r"\s+", "", (as_text or "")).upper()
-    return "CJENM" in t or "CJ온스타일" in t
+    return "CJ" in t and "CJ몰" not in t
 
 
 def in_skip_hours(start):

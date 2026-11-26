@@ -15,7 +15,7 @@
 
 | 파일 | 누가 쓰나 | 내용 |
 |---|---|---|
-| `frontend/public/data.json` | 봇 | 롯데와 같은 형식. 편성: 오늘 이후 **TV LIVE(CJ온스타일)만** (CJ온스타일+·라이브쇼 제외), **02:00~05:59 시작 방송 제외**, `channel` 필드에 표시 이름. 상품(isMaster): 그 편성에 나오고 **A/S 책임자에 'CJ ENM' 또는 'CJ온스타일'이 들어간** 상품 (CJ몰 고객센터 등 제외) |
+| `frontend/public/data.json` | 봇 | 롯데와 같은 형식. 편성: 오늘 이후 **TV LIVE(CJ온스타일)만** (CJ온스타일+·라이브쇼 제외), **02:00~05:59 시작 방송 제외**, `channel` 필드에 표시 이름. 상품(isMaster): 그 편성에 나오고 **A/S 책임자에 'CJ'가 들어간** 상품, 단 **'CJ몰'(CJ몰 고객센터)은 제외** |
 | `frontend/public/seed_stock.json` | 봇 | 초기 임의 재고 0~8. 새 상품·옵션만 추가, **기존 값 절대 변경 안 함** |
 | `db/products.json` | 앱 | 상품등록·수정. 자동 상품보다 우선. `deleted: true` 면 숨김 |
 | `db/history.json` | 앱 | 재고 이력 (IN / RENT 음수 / RETURN 양수+ref_id / ADJUST) |
