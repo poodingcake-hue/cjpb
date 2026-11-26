@@ -1,5 +1,5 @@
 {
- "updatedAt": "2026-11-26 23:47",
+ "updatedAt": "2026-11-26 23:58",
  "items": {
   "2080810650": {
    "code": "2080810650",
@@ -866,6 +866,12 @@
      "color": "크림아이보리",
      "size": "88",
      "qty": 0
+    },
+    {
+     "unitCode": "12501394648",
+     "color": "차콜",
+     "size": "77",
+     "qty": 4
     }
    ]
   },
@@ -3805,6 +3811,915 @@
      "color": "블랙",
      "size": "255",
      "qty": 1
+    }
+   ]
+  },
+  "2070027589": {
+   "code": "2070027589",
+   "name": "[정상가 199,000원] 25FW 실크 울 테일러드 롱코트",
+   "brand": "르네디피",
+   "as": "㈜ CJ ENM 080-000-8000",
+   "image": "https://image.cjonstyle.net/goods_images/20/589/2070027589L.jpg",
+   "link": "https://item.cjonstyle.com/item/2070027589",
+   "addedAt": "2026-11-26 23:58",
+   "options": [
+    {
+     "unitCode": "12518223148",
+     "color": "차콜",
+     "size": "44",
+     "qty": 4
+    },
+    {
+     "unitCode": "12518223149",
+     "color": "차콜",
+     "size": "55",
+     "qty": 1
+    },
+    {
+     "unitCode": "12518223150",
+     "color": "차콜",
+     "size": "66",
+     "qty": 4
+    },
+    {
+     "unitCode": "12518223151",
+     "color": "차콜",
+     "size": "77",
+     "qty": 0
+    },
+    {
+     "unitCode": "12518223152",
+     "color": "블랙",
+     "size": "44",
+     "qty": 1
+    },
+    {
+     "unitCode": "12518223153",
+     "color": "블랙",
+     "size": "55",
+     "qty": 3
+    },
+    {
+     "unitCode": "12518223155",
+     "color": "블랙",
+     "size": "77",
+     "qty": 6
+    },
+    {
+     "unitCode": "12518223156",
+     "color": "버터옐로우",
+     "size": "44",
+     "qty": 6
+    },
+    {
+     "unitCode": "12518223157",
+     "color": "버터옐로우",
+     "size": "55",
+     "qty": 4
+    },
+    {
+     "unitCode": "12518223158",
+     "color": "버터옐로우",
+     "size": "66",
+     "qty": 6
+    },
+    {
+     "unitCode": "12518223159",
+     "color": "버터옐로우",
+     "size": "77",
+     "qty": 2
+    }
+   ]
+  },
+  "2081050077": {
+   "code": "2081050077",
+   "name": "26SS 링클프리 에어리 팬츠",
+   "brand": "르네디피",
+   "as": "㈜ CJ ENM 080-000-8000",
+   "image": "https://image.cjonstyle.net/goods_images/20/077/2081050077L.jpg",
+   "link": "https://item.cjonstyle.com/item/2081050077",
+   "addedAt": "2026-11-26 23:58",
+   "options": [
+    {
+     "unitCode": "12563262358",
+     "color": "블랙",
+     "size": "55",
+     "qty": 5
+    },
+    {
+     "unitCode": "12563262359",
+     "color": "블랙",
+     "size": "66",
+     "qty": 8
+    },
+    {
+     "unitCode": "12563262360",
+     "color": "블랙",
+     "size": "77",
+     "qty": 1
+    },
+    {
+     "unitCode": "12563262361",
+     "color": "블랙",
+     "size": "88",
+     "qty": 4
+    },
+    {
+     "unitCode": "12563262362",
+     "color": "화이트",
+     "size": "55",
+     "qty": 8
+    },
+    {
+     "unitCode": "12563262363",
+     "color": "화이트",
+     "size": "66",
+     "qty": 5
+    },
+    {
+     "unitCode": "12563262364",
+     "color": "화이트",
+     "size": "77",
+     "qty": 7
+    },
+    {
+     "unitCode": "12563262365",
+     "color": "화이트",
+     "size": "88",
+     "qty": 4
+    },
+    {
+     "unitCode": "12563262368",
+     "color": "썸머베이지",
+     "size": "55",
+     "qty": 1
+    },
+    {
+     "unitCode": "12563262369",
+     "color": "썸머베이지",
+     "size": "66",
+     "qty": 3
+    },
+    {
+     "unitCode": "12563262370",
+     "color": "썸머베이지",
+     "size": "77",
+     "qty": 6
+    },
+    {
+     "unitCode": "12563262371",
+     "color": "썸머베이지",
+     "size": "88",
+     "qty": 0
+    }
+   ]
+  },
+  "2081050759": {
+   "code": "2081050759",
+   "name": "26SS 투웨이 슬리브리스 블라우스 + 팬츠 (2종)",
+   "brand": "르네디피",
+   "as": "㈜ CJ ENM 080-000-8000",
+   "image": "https://image.cjonstyle.net/goods_images/20/759/2081050759L.jpg",
+   "link": "https://item.cjonstyle.com/item/2081050759",
+   "addedAt": "2026-11-26 23:58",
+   "options": [
+    {
+     "unitCode": "12563282704",
+     "color": "차콜",
+     "size": "55",
+     "qty": 2
+    },
+    {
+     "unitCode": "12563282705",
+     "color": "차콜",
+     "size": "66",
+     "qty": 8
+    },
+    {
+     "unitCode": "12563282706",
+     "color": "차콜",
+     "size": "77",
+     "qty": 5
+    },
+    {
+     "unitCode": "12563282707",
+     "color": "차콜",
+     "size": "88",
+     "qty": 8
+    },
+    {
+     "unitCode": "12563282708",
+     "color": "베이지",
+     "size": "55",
+     "qty": 5
+    },
+    {
+     "unitCode": "12563282709",
+     "color": "베이지",
+     "size": "66",
+     "qty": 4
+    },
+    {
+     "unitCode": "12563282710",
+     "color": "베이지",
+     "size": "77",
+     "qty": 0
+    },
+    {
+     "unitCode": "12563282711",
+     "color": "베이지",
+     "size": "88",
+     "qty": 1
+    },
+    {
+     "unitCode": "12563282712",
+     "color": "모카",
+     "size": "55",
+     "qty": 5
+    },
+    {
+     "unitCode": "12563282713",
+     "color": "모카",
+     "size": "66",
+     "qty": 1
+    },
+    {
+     "unitCode": "12563282714",
+     "color": "모카",
+     "size": "77",
+     "qty": 2
+    },
+    {
+     "unitCode": "12563282715",
+     "color": "모카",
+     "size": "88",
+     "qty": 3
+    }
+   ]
+  },
+  "2086309857": {
+   "code": "2086309857",
+   "name": "선택1)통3중스텐저압냄비(6L+4L)총2개세트",
+   "brand": "에이엠",
+   "as": "마이하우스 / 080-675-8337 청약철회 및 반품조건 제품하자·오배송으로 인한 청약철회 시 공급받은 날부터 3개월 이내 그 사실을 알거나 알 수 있었던 날로부터 30일이내 청약철회 가능 (반품비 ㈜CJ ENM(커머스부문))",
+   "image": "https://image.cjonstyle.net/goods_images/20/857/2086309857L.jpg",
+   "link": "https://item.cjonstyle.com/item/2086309857",
+   "addedAt": "2026-11-26 23:58",
+   "options": [
+    {
+     "unitCode": "12586574049",
+     "color": "단일상품",
+     "size": "-",
+     "qty": 7
+    }
+   ]
+  },
+  "2097955278": {
+   "code": "2097955278",
+   "name": "26FW 캐시미어블렌드 기모 자수풀오버",
+   "brand": "지스튜디오",
+   "as": "CJ ENM (080-000-8001)",
+   "image": "https://image.cjonstyle.net/goods_images/20/278/2097955278L.jpg",
+   "link": "https://item.cjonstyle.com/item/2097955278",
+   "addedAt": "2026-11-26 23:58",
+   "options": [
+    {
+     "unitCode": "12637452460",
+     "color": "블랙",
+     "size": "44",
+     "qty": 8
+    },
+    {
+     "unitCode": "12637452461",
+     "color": "블랙",
+     "size": "55",
+     "qty": 4
+    },
+    {
+     "unitCode": "12637452462",
+     "color": "블랙",
+     "size": "66",
+     "qty": 3
+    },
+    {
+     "unitCode": "12637452463",
+     "color": "블랙",
+     "size": "77",
+     "qty": 3
+    },
+    {
+     "unitCode": "12637452464",
+     "color": "블랙",
+     "size": "88",
+     "qty": 8
+    },
+    {
+     "unitCode": "12637452465",
+     "color": "크림",
+     "size": "44",
+     "qty": 1
+    },
+    {
+     "unitCode": "12637452466",
+     "color": "크림",
+     "size": "55",
+     "qty": 4
+    },
+    {
+     "unitCode": "12637452467",
+     "color": "크림",
+     "size": "66",
+     "qty": 1
+    },
+    {
+     "unitCode": "12637452468",
+     "color": "크림",
+     "size": "77",
+     "qty": 2
+    },
+    {
+     "unitCode": "12637452469",
+     "color": "크림",
+     "size": "88",
+     "qty": 2
+    },
+    {
+     "unitCode": "12637452475",
+     "color": "차콜",
+     "size": "44",
+     "qty": 6
+    },
+    {
+     "unitCode": "12637452476",
+     "color": "차콜",
+     "size": "55",
+     "qty": 6
+    },
+    {
+     "unitCode": "12637452477",
+     "color": "차콜",
+     "size": "66",
+     "qty": 2
+    },
+    {
+     "unitCode": "12637452478",
+     "color": "차콜",
+     "size": "77",
+     "qty": 3
+    },
+    {
+     "unitCode": "12637452479",
+     "color": "차콜",
+     "size": "88",
+     "qty": 3
+    }
+   ]
+  },
+  "2076499946": {
+   "code": "2076499946",
+   "name": "26SS 이집트 GIZA 티셔츠 3종 (페블그레이 패키지)",
+   "brand": "지스튜디오",
+   "as": "CJ ENM (080-000-8001)",
+   "image": "https://image.cjonstyle.net/goods_images/20/946/2076499946L.jpg",
+   "link": "https://item.cjonstyle.com/item/2076499946",
+   "addedAt": "2026-11-26 23:58",
+   "options": [
+    {
+     "unitCode": "12547789674",
+     "color": "44",
+     "size": "3종",
+     "qty": 4
+    },
+    {
+     "unitCode": "12547789675",
+     "color": "55",
+     "size": "3종",
+     "qty": 5
+    },
+    {
+     "unitCode": "12547789676",
+     "color": "66",
+     "size": "3종",
+     "qty": 1
+    },
+    {
+     "unitCode": "12547789677",
+     "color": "77",
+     "size": "3종",
+     "qty": 1
+    },
+    {
+     "unitCode": "12547789678",
+     "color": "88",
+     "size": "3종",
+     "qty": 8
+    }
+   ]
+  },
+  "2081464759": {
+   "code": "2081464759",
+   "name": "[최초가 89,900원] 26SS 스퀘어넥 골지브라탑 3종 (XL ONLY)",
+   "brand": "지스튜디오",
+   "as": "CJ ENM (080-000-8001) / 제니스에비뉴(070-4243-7661)",
+   "image": "https://image.cjonstyle.net/goods_images/20/759/2081464759L.jpg",
+   "link": "https://item.cjonstyle.com/item/2081464759",
+   "addedAt": "2026-11-26 23:58",
+   "options": [
+    {
+     "unitCode": "12565227122",
+     "color": "XL [88]",
+     "size": "-",
+     "qty": 8
+    }
+   ]
+  },
+  "2076949615": {
+   "code": "2076949615",
+   "name": "[최초가59,900원][김고은착장] 폭스울블렌드 루즈핏 뷔스티에 2종",
+   "brand": "더엣지",
+   "as": "㈜ CJ ENM 080-000-8000",
+   "image": "https://image.cjonstyle.net/goods_images/20/615/2076949615L.jpg",
+   "link": "https://item.cjonstyle.com/item/2076949615",
+   "addedAt": "2026-11-26 23:58",
+   "options": [
+    {
+     "unitCode": "12549402375",
+     "color": "77",
+     "size": "77",
+     "qty": 4
+    },
+    {
+     "unitCode": "12549402376",
+     "color": "88",
+     "size": "88",
+     "qty": 1
+    }
+   ]
+  },
+  "2081549681": {
+   "code": "2081549681",
+   "name": "[최초가69,900원] X데이즈데이즈 26SS 콤드코튼 100% 티어드 스커트",
+   "brand": "더엣지",
+   "as": "㈜ CJ ENM 080-000-8000",
+   "image": "https://image.cjonstyle.net/goods_images/20/681/2081549681L.jpg",
+   "link": "https://item.cjonstyle.com/item/2081549681",
+   "addedAt": "2026-11-26 23:58",
+   "options": [
+    {
+     "unitCode": "12565686049",
+     "color": "화이트",
+     "size": "55",
+     "qty": 7
+    },
+    {
+     "unitCode": "12565686050",
+     "color": "화이트",
+     "size": "66",
+     "qty": 0
+    },
+    {
+     "unitCode": "12565686051",
+     "color": "화이트",
+     "size": "77",
+     "qty": 3
+    },
+    {
+     "unitCode": "12565686052",
+     "color": "화이트",
+     "size": "88",
+     "qty": 5
+    },
+    {
+     "unitCode": "12565686053",
+     "color": "블랙",
+     "size": "55",
+     "qty": 2
+    },
+    {
+     "unitCode": "12565686054",
+     "color": "블랙",
+     "size": "66",
+     "qty": 4
+    },
+    {
+     "unitCode": "12565686055",
+     "color": "블랙",
+     "size": "77",
+     "qty": 3
+    },
+    {
+     "unitCode": "12565686056",
+     "color": "블랙",
+     "size": "88",
+     "qty": 0
+    },
+    {
+     "unitCode": "12565686057",
+     "color": "레몬",
+     "size": "55",
+     "qty": 3
+    },
+    {
+     "unitCode": "12565686058",
+     "color": "레몬",
+     "size": "66",
+     "qty": 4
+    },
+    {
+     "unitCode": "12565686059",
+     "color": "레몬",
+     "size": "77",
+     "qty": 3
+    },
+    {
+     "unitCode": "12565686060",
+     "color": "레몬",
+     "size": "88",
+     "qty": 6
+    }
+   ]
+  },
+  "2094164418": {
+   "code": "2094164418",
+   "name": "[미리주문 10%] 26FW 사가폭스 케이프후드 헝가리구스다운",
+   "brand": "지스튜디오",
+   "as": "CJ ENM (080-000-8001)",
+   "image": "https://image.cjonstyle.net/goods_images/20/418/2094164418L.jpg",
+   "link": "https://item.cjonstyle.com/item/2094164418",
+   "addedAt": "2026-11-26 23:58",
+   "options": [
+    {
+     "unitCode": "12620156867",
+     "color": "블랙",
+     "size": "55",
+     "qty": 5
+    },
+    {
+     "unitCode": "12620156868",
+     "color": "블랙",
+     "size": "66",
+     "qty": 2
+    },
+    {
+     "unitCode": "12620156869",
+     "color": "블랙",
+     "size": "77",
+     "qty": 1
+    },
+    {
+     "unitCode": "12620156870",
+     "color": "블랙",
+     "size": "88",
+     "qty": 6
+    },
+    {
+     "unitCode": "12620156871",
+     "color": "브라운",
+     "size": "55",
+     "qty": 5
+    },
+    {
+     "unitCode": "12620156872",
+     "color": "브라운",
+     "size": "66",
+     "qty": 8
+    },
+    {
+     "unitCode": "12620156873",
+     "color": "브라운",
+     "size": "77",
+     "qty": 3
+    },
+    {
+     "unitCode": "12620156874",
+     "color": "브라운",
+     "size": "88",
+     "qty": 0
+    },
+    {
+     "unitCode": "12620156875",
+     "color": "베이지",
+     "size": "55",
+     "qty": 1
+    },
+    {
+     "unitCode": "12620156876",
+     "color": "베이지",
+     "size": "66",
+     "qty": 0
+    },
+    {
+     "unitCode": "12620156877",
+     "color": "베이지",
+     "size": "77",
+     "qty": 8
+    },
+    {
+     "unitCode": "12620156878",
+     "color": "베이지",
+     "size": "88",
+     "qty": 5
+    }
+   ]
+  },
+  "2092080894": {
+   "code": "2092080894",
+   "name": "26FW 뉴 헝가리구스다운 스트레이트 팬츠",
+   "brand": "지스튜디오",
+   "as": "CJ ENM (080-000-8001)",
+   "image": "https://image.cjonstyle.net/goods_images/20/894/2092080894L.jpg",
+   "link": "https://item.cjonstyle.com/item/2092080894",
+   "addedAt": "2026-11-26 23:58",
+   "options": [
+    {
+     "unitCode": "12611595588",
+     "color": "블랙",
+     "size": "55",
+     "qty": 7
+    },
+    {
+     "unitCode": "12611595589",
+     "color": "블랙",
+     "size": "66",
+     "qty": 5
+    },
+    {
+     "unitCode": "12611595590",
+     "color": "블랙",
+     "size": "77",
+     "qty": 8
+    },
+    {
+     "unitCode": "12611595591",
+     "color": "블랙",
+     "size": "88",
+     "qty": 5
+    },
+    {
+     "unitCode": "12611595592",
+     "color": "딥브라운",
+     "size": "55",
+     "qty": 6
+    },
+    {
+     "unitCode": "12611595593",
+     "color": "딥브라운",
+     "size": "66",
+     "qty": 6
+    },
+    {
+     "unitCode": "12611595594",
+     "color": "딥브라운",
+     "size": "77",
+     "qty": 7
+    },
+    {
+     "unitCode": "12611595595",
+     "color": "딥브라운",
+     "size": "88",
+     "qty": 2
+    },
+    {
+     "unitCode": "12611595596",
+     "color": "베이지",
+     "size": "55",
+     "qty": 7
+    },
+    {
+     "unitCode": "12611595597",
+     "color": "베이지",
+     "size": "66",
+     "qty": 2
+    },
+    {
+     "unitCode": "12611595598",
+     "color": "베이지",
+     "size": "77",
+     "qty": 6
+    },
+    {
+     "unitCode": "12611595599",
+     "color": "베이지",
+     "size": "88",
+     "qty": 5
+    }
+   ]
+  },
+  "2090667511": {
+   "code": "2090667511",
+   "name": "26FW 브러쉬드 체크셔츠 + 랩 스커트 2종",
+   "brand": "르네디피",
+   "as": "㈜ CJ ENM 080-000-8000",
+   "image": "https://image.cjonstyle.net/goods_images/20/511/2090667511L.jpg",
+   "link": "https://item.cjonstyle.com/item/2090667511",
+   "addedAt": "2026-11-26 23:58",
+   "options": [
+    {
+     "unitCode": "12605666676",
+     "color": "블랙네이비",
+     "size": "55",
+     "qty": 7
+    },
+    {
+     "unitCode": "12605666677",
+     "color": "블랙네이비",
+     "size": "66",
+     "qty": 4
+    },
+    {
+     "unitCode": "12605666678",
+     "color": "블랙네이비",
+     "size": "77",
+     "qty": 5
+    },
+    {
+     "unitCode": "12605666679",
+     "color": "블랙네이비",
+     "size": "88",
+     "qty": 6
+    },
+    {
+     "unitCode": "12605666680",
+     "color": "레드브라운",
+     "size": "55",
+     "qty": 5
+    },
+    {
+     "unitCode": "12605666681",
+     "color": "레드브라운",
+     "size": "66",
+     "qty": 8
+    },
+    {
+     "unitCode": "12605666682",
+     "color": "레드브라운",
+     "size": "77",
+     "qty": 7
+    },
+    {
+     "unitCode": "12605666683",
+     "color": "레드브라운",
+     "size": "88",
+     "qty": 8
+    },
+    {
+     "unitCode": "12605666684",
+     "color": "올리브카키",
+     "size": "55",
+     "qty": 0
+    },
+    {
+     "unitCode": "12605666685",
+     "color": "올리브카키",
+     "size": "66",
+     "qty": 6
+    },
+    {
+     "unitCode": "12605666686",
+     "color": "올리브카키",
+     "size": "77",
+     "qty": 7
+    },
+    {
+     "unitCode": "12605666687",
+     "color": "올리브카키",
+     "size": "88",
+     "qty": 2
+    }
+   ]
+  },
+  "2092080547": {
+   "code": "2092080547",
+   "name": "26FW 카멜 실크 블렌디드 핸드메이드 케이프",
+   "brand": "지스튜디오",
+   "as": "CJ ENM (080-000-8001)",
+   "image": "https://image.cjonstyle.net/goods_images/20/547/2092080547L.jpg",
+   "link": "https://item.cjonstyle.com/item/2092080547",
+   "addedAt": "2026-11-26 23:58",
+   "options": [
+    {
+     "unitCode": "12611594357",
+     "color": "차콜그레이",
+     "size": "S(55)",
+     "qty": 4
+    },
+    {
+     "unitCode": "12611594358",
+     "color": "차콜그레이",
+     "size": "M(66)",
+     "qty": 7
+    },
+    {
+     "unitCode": "12611594359",
+     "color": "차콜그레이",
+     "size": "L(77~88)",
+     "qty": 0
+    },
+    {
+     "unitCode": "12611594360",
+     "color": "블랙",
+     "size": "S(55)",
+     "qty": 2
+    },
+    {
+     "unitCode": "12611594361",
+     "color": "블랙",
+     "size": "M(66)",
+     "qty": 5
+    },
+    {
+     "unitCode": "12611594362",
+     "color": "블랙",
+     "size": "L(77-88)",
+     "qty": 3
+    },
+    {
+     "unitCode": "12611594363",
+     "color": "올리브모카",
+     "size": "S(55)",
+     "qty": 3
+    },
+    {
+     "unitCode": "12611594364",
+     "color": "올리브모카",
+     "size": "M(66)",
+     "qty": 4
+    },
+    {
+     "unitCode": "12611594365",
+     "color": "올리브모카",
+     "size": "L(77-88)",
+     "qty": 4
+    }
+   ]
+  },
+  "2096791834": {
+   "code": "2096791834",
+   "name": "[미리주문 10%] 26FW 웜테크 에센셜 브라티 4종",
+   "brand": "지스튜디오",
+   "as": "CJ ENM (080-000-8001) / 제니스에비뉴(070-4243-7661)",
+   "image": "https://image.cjonstyle.net/goods_images/20/834/2096791834L.jpg",
+   "link": "https://item.cjonstyle.com/item/2096791834",
+   "addedAt": "2026-11-26 23:58",
+   "options": [
+    {
+     "unitCode": "12632162861",
+     "color": "4종",
+     "size": "44 [XS]",
+     "qty": 1
+    },
+    {
+     "unitCode": "12632161573",
+     "color": "4종",
+     "size": "55 [S]",
+     "qty": 8
+    },
+    {
+     "unitCode": "12632161574",
+     "color": "4종",
+     "size": "66 [M]",
+     "qty": 7
+    },
+    {
+     "unitCode": "12632161575",
+     "color": "4종",
+     "size": "77 [L]",
+     "qty": 2
+    },
+    {
+     "unitCode": "12632161576",
+     "color": "4종",
+     "size": "88 [XL]",
+     "qty": 6
+    }
+   ]
+  },
+  "2091661981": {
+   "code": "2091661981",
+   "name": "26FW 이태리 직수입레더 카바스백 스몰",
+   "brand": "지스튜디오",
+   "as": "CJ ENM (080-000-8001)",
+   "image": "https://image.cjonstyle.net/goods_images/20/981/2091661981L.jpg",
+   "link": "https://item.cjonstyle.com/item/2091661981",
+   "addedAt": "2026-11-26 23:58",
+   "options": [
+    {
+     "unitCode": "12609804785",
+     "color": "블랙",
+     "size": "-",
+     "qty": 7
+    },
+    {
+     "unitCode": "12609804786",
+     "color": "카멜베이지",
+     "size": "-",
+     "qty": 4
+    },
+    {
+     "unitCode": "12609804787",
+     "color": "레드",
+     "size": "-",
+     "qty": 0
     }
    ]
   }
