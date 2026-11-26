@@ -1,8 +1,8 @@
 """크롤링 결과(data/*.csv)로 앱이 읽는 정적 데이터를 만든다. (봇 전용 파일)
 
 frontend/public/data.json        롯데 앱과 같은 형식: items = 상품(isMaster) + 편성(isMaster=false)
-                                 - 상품: A/S 책임자에 'CJ ENM'이 들어간 상품
-                                 - 편성: 오늘 이후 전체 편성 상품
+                                 - 편성: 오늘 이후, TV LIVE(CJ온스타일)·라이브쇼(CJ온스타일 라이브)만
+                                 - 상품: 위 편성에 나오고 A/S 책임자에 'CJ'가 들어간 상품
 frontend/public/seed_stock.json  초기 임의 재고 {상품코드: [{color,size,qty}]}
                                  - 처음 보는 상품·옵션만 추가(0~8 임의), 기존 값은 절대 바꾸지 않음
 
@@ -38,8 +38,13 @@ def read_csv(name):
         return list(csv.DictReader(f))
 
 
-def is_cj_enm(as_text):
-    return "CJENM" in re.sub(r"\s+", "", (as_text or "")).upper()
+# 편성표에 보여줄 채널 (CJ온스타일+ 는 제외) → 화면 표시 이름
+CHANNELS = {"CJ온스타일": "TV LIVE", "CJ온스타일 라이브": "라이브쇼"}
+
+
+def is_ours(as_text):
+    """A/S 책임자에 'CJ'가 들어가면 우리 상품 (CJ ENM, CJ온스타일 고객센터, CJ몰 등)."""
+    return "CJ" in re.sub(r"\s+", "", (as_text or "")).upper()
 
 
 def image_url(code, given=""):
@@ -75,7 +80,8 @@ def main():
     stamp = now.strftime("%Y-%m-%d %H:%M")
     today = now.strftime("%Y-%m-%d")
 
-    sched = read_csv("cj_schedule.csv")
+    sched = [r for r in read_csv("cj_schedule.csv") if r["채널"] in CHANNELS]
+    on_air = {r["상품코드"] for r in sched}
     items = {r["상품코드"]: r for r in read_csv("cj_items.csv")}
     options = {}
     for o in read_csv("cj_item_options.csv"):
@@ -100,7 +106,7 @@ def main():
     masters = dict(old_masters)
     new_items = new_opts = 0
     for code, it in items.items():
-        if not is_cj_enm(it.get("A/S 책임자")):
+        if code not in on_air or not is_ours(it.get("A/S 책임자")):
             continue
         opts = options.get(code, [])
         colors = uniq(o["색상"] or o["옵션명"] for o in opts)
@@ -154,7 +160,7 @@ def main():
             "date": r["방송시작"][:16],
             "endDate": r["방송종료"][:16],
             "dateKey": date,
-            "channel": r["채널"],
+            "channel": CHANNELS[r["채널"]],
             "program": r["프로그램"],
             "location": "-",
             "isMaster": False,

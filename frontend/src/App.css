@@ -989,3 +989,15 @@ input[type=number] {
         display: none !important;
     }
 }
+
+/* CJ PB: 편성 시간 옆 채널 표시 */
+.channel-badge {
+    margin-left: 8px;
+    font-size: 11px;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 999px;
+    line-height: 1.4;
+}
+.channel-badge.is-tv { background: #eef2ff; color: #4361ee; }
+.channel-badge.is-live { background: #fff0f3; color: #e5484d; }

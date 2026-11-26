@@ -74,7 +74,9 @@ const SchedulePage = () => {
     const seen: Record<string, Set<string>> = {};
     items.forEach(item => {
       const tmMatch = item.date ? item.date.match(/(\d{1,2}:\d{1,2})/) : null;
-      const key = tmMatch ? tmMatch[1] : "시간미상";
+      // 같은 시각이라도 채널(TV LIVE / 라이브쇼)이 다르면 다른 방송이라 따로 묶는다
+      const tm = tmMatch ? tmMatch[1].padStart(5, '0') : "시간미상";
+      const key = item.channel ? `${tm}|${item.channel}` : tm;
       if (!groups[key]) { groups[key] = []; seen[key] = new Set(); }
       const code = String(item.code);
       if (seen[key].has(code)) return;
@@ -105,7 +107,8 @@ const SchedulePage = () => {
     return groupByTime(filtered);
   }, [allItems, masterCodes, selDate]);
 
-  const sortedTimes = Object.keys(scheduleGroups).sort((a, b) => parseTime(a) - parseTime(b));
+  const channelRank = (k: string) => (k.includes('|라이브쇼') ? 1 : 0);
+  const sortedTimes = Object.keys(scheduleGroups).sort((a, b) => parseTime(a) - parseTime(b) || channelRank(a) - channelRank(b));
 
   if (isLoading) {
     return <div id="loading-overlay" style={{ display: 'flex' }}><div className="spinner-border text-primary" role="status"><span className="visually-hidden">Loading...</span></div></div>;
@@ -176,7 +179,10 @@ const SchedulePage = () => {
             return (
               <div key={time}>
                 <div className="time-divider">
-                  <span>{time} 방송</span>
+                  <span>{time.split('|')[0]} 방송</span>
+                  {time.includes('|') && (
+                    <span className={`channel-badge ${time.endsWith('|라이브쇼') ? 'is-live' : 'is-tv'}`}>{time.split('|')[1]}</span>
+                  )}
                   <WeatherBadge weather={allWeather} date={selDate} time={time} />
                   <button
                     type="button"

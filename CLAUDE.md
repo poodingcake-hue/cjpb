@@ -15,11 +15,11 @@
 
 | 파일 | 누가 쓰나 | 내용 |
 |---|---|---|
-| `frontend/public/data.json` | 봇 | 롯데와 같은 형식. 상품(isMaster: A/S 책임자 CJ ENM) + 오늘 이후 편성 |
+| `frontend/public/data.json` | 봇 | 롯데와 같은 형식. 편성: 오늘 이후 **TV LIVE(CJ온스타일)·라이브쇼(CJ온스타일 라이브)만** (CJ온스타일+ 제외), `channel` 필드에 표시 이름. 상품(isMaster): 그 편성에 나오고 **A/S 책임자에 'CJ'가 들어간** 상품 |
 | `frontend/public/seed_stock.json` | 봇 | 초기 임의 재고 0~8. 새 상품·옵션만 추가, **기존 값 절대 변경 안 함** |
 | `db/products.json` | 앱 | 상품등록·수정. 자동 상품보다 우선. `deleted: true` 면 숨김 |
 | `db/history.json` | 앱 | 재고 이력 (IN / RENT 음수 / RETURN 양수+ref_id / ADJUST) |
-| `db/outfits.json`, `db/notes.json`, `db/supplies.json` | 앱 | 착장 / 특이사항 / 준비물 |
+| `db/outfits.json`, `db/notes.json`, `db/supplies.json` | 앱 | 착장 / 특이사항 / 준비물. 처음 값은 `scripts/make_sample_data.py`가 롯데 데이터를 참고해 만든 **가상 데이터** (착장자는 가상 이름) |
 | `uploads/` | 앱 | 상품 이미지 |
 
 **재고 = seed_stock + SUM(history.qty)** (롯데 규칙과 같음: 재고는 저장하지 않고 이력에서 계산).
@@ -30,6 +30,7 @@ seed 행은 화면에 id `seed-…` 인 IN 이력으로 보이고, 수정하면 
 - 가상착장 없음
 - AI 사이즈표 분석·AI 누끼는 서버(API 키)가 필요해서 미지원 (안내 메시지)
 - 날씨 배지 없음 (롯데는 기상청 키를 서버에서 사용)
+- 편성표는 시간+채널별로 묶고 시간 옆에 채널(TV LIVE / 라이브쇼) 배지 표시
 - 저장하려면 기기마다 GitHub 토큰(🔒 버튼) 필요. 조회는 토큰 없이 가능
 
 ## 자동화
