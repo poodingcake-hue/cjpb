@@ -1,8 +1,8 @@
 /* === 원본 index.html CSS 100% 그대로 복사 === */
 
 :root {
-    --primary: #4361ee;
-    --primary-soft: #eef2ff;
+    --primary: #6229db;       /* CJ ONSTYLE 보라 */
+    --primary-soft: #f1ebfd;
     --bg: #f8f9fa;
     --text: #1a1a1a;
     --nav-height: 64px;
@@ -702,7 +702,7 @@ body {
 .m-btn-confirm {
     background: var(--primary);
     color: white;
-    box-shadow: 0 4px 12px rgba(67, 97, 238, 0.3);
+    box-shadow: 0 4px 12px rgba(98, 41, 219, 0.28);
 }
 
 .m-btn:hover {
@@ -711,7 +711,7 @@ body {
 }
 
 .m-btn-confirm:hover {
-    box-shadow: 0 6px 16px rgba(67, 97, 238, 0.4);
+    box-shadow: 0 6px 16px rgba(98, 41, 219, 0.38);
 }
 
 .m-btn:active {
@@ -843,7 +843,7 @@ input[type=number] {
 }
 
 .weather-pop {
-    color: #4361ee;
+    color: var(--primary);
     font-size: 10px;
 }
 
@@ -999,5 +999,82 @@ input[type=number] {
     border-radius: 999px;
     line-height: 1.4;
 }
-.channel-badge.is-tv { background: #eef2ff; color: #4361ee; }
+.channel-badge.is-tv { background: linear-gradient(90deg, #ea7944, #eaac5c); color: #fff; }
 .channel-badge.is-live { background: #fff0f3; color: #e5484d; }
+
+
+/* ===================================================================
+   CJ ONSTYLE 테마 (CJ 앱 화면에서 뽑은 색)
+   보라 #6229db · LIVE 빨강 #e22d4b · TV 주황 #ea7944→#eaac5c · 글자 #111
+   흰 배경 · 굵은 제목 · 검정 알약 버튼 · 탭은 검정 굵은 글씨 + 밑줄
+   =================================================================== */
+:root {
+    --cj-violet: #6229db;
+    --cj-violet-dark: #4f1fbf;
+    --cj-red: #e22d4b;
+    --cj-orange: #ea7944;
+    --cj-orange-2: #eaac5c;
+    --cj-text: #111111;
+    --cj-sub: #767676;
+    --cj-line: #ececec;
+    --bg: #ffffff;
+    --text: #111111;
+    --bs-primary: #6229db;
+    --bs-primary-rgb: 98, 41, 219;
+    --bs-link-color: #6229db;
+    --bs-link-hover-color: #4f1fbf;
+    --bs-body-color: #111111;
+}
+
+body { background-color: #fff; color: var(--cj-text); letter-spacing: -0.6px; }
+
+/* 헤더: 로고는 CJ 보라 그라데이션, 메뉴는 CJ 탭처럼 */
+.top-nav { box-shadow: none; border-bottom: 1px solid var(--cj-line); }
+.nav-logo {
+    font-weight: 900;
+    letter-spacing: -1px;
+    background: linear-gradient(90deg, #6229db 0%, #7d48e4 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+}
+.nav-item { color: #555; font-weight: 600; border-radius: 0; position: relative; }
+.nav-item:hover { color: var(--cj-text); background: none; }
+.nav-item.active { background: none; color: var(--cj-text); font-weight: 800; }
+.nav-item.active::after {
+    content: ''; position: absolute; left: 10px; right: 10px; bottom: -2px;
+    height: 3px; background: var(--cj-text); border-radius: 2px;
+}
+
+/* 날짜 선택: 선택된 날은 CJ 보라 */
+.date-btn { border-color: var(--cj-line); color: var(--cj-text); font-weight: 600; }
+.date-btn.active { background: var(--cj-violet); border-color: var(--cj-violet); color: #fff; box-shadow: 0 4px 12px rgba(98, 41, 219, 0.25); }
+
+/* 편성 시간 줄: CJ '지금 방송 중'처럼 굵게 */
+.time-divider { font-size: 15px; font-weight: 800; color: var(--cj-text); border-bottom: 1px solid var(--cj-line); }
+.channel-badge { border-radius: 999px; font-weight: 800; padding: 3px 10px; }
+
+/* 상품 카드: 흰 카드, 연한 테두리, 브랜드는 굵은 검정 */
+.p-card { border: 1px solid var(--cj-line); border-radius: 12px; box-shadow: none; }
+.p-card:hover { box-shadow: 0 6px 18px rgba(0, 0, 0, 0.06); }
+.p-card.is-owned { border-color: var(--cj-line); }
+.p-brand { color: var(--cj-text) !important; font-weight: 800; }
+.p-name { color: #333; }
+
+/* Bootstrap 기본 파랑 → CJ 보라 / 검정 알약 */
+.btn-primary {
+    --bs-btn-bg: var(--cj-violet); --bs-btn-border-color: var(--cj-violet);
+    --bs-btn-hover-bg: var(--cj-violet-dark); --bs-btn-hover-border-color: var(--cj-violet-dark);
+    --bs-btn-active-bg: var(--cj-violet-dark); --bs-btn-active-border-color: var(--cj-violet-dark);
+    --bs-btn-disabled-bg: #b9a2ee; --bs-btn-disabled-border-color: #b9a2ee;
+    font-weight: 700;
+}
+.btn-dark { --bs-btn-bg: #000; --bs-btn-border-color: #000; border-radius: 999px; font-weight: 700; }
+.text-primary { color: var(--cj-violet) !important; }
+.bg-primary { background-color: var(--cj-violet) !important; }
+.border-primary { border-color: var(--cj-violet) !important; }
+.text-danger { color: var(--cj-red) !important; }
+.btn-danger { --bs-btn-bg: var(--cj-red); --bs-btn-border-color: var(--cj-red); }
+.form-control:focus, .form-select:focus { border-color: #b9a2ee; box-shadow: 0 0 0 0.2rem rgba(98, 41, 219, 0.15); }
+.form-check-input:checked { background-color: var(--cj-violet); border-color: var(--cj-violet); }
+a { color: var(--cj-violet); }

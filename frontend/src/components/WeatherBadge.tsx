@@ -17,7 +17,7 @@ const getWeatherIcon = (sky: number, pty: number) => {
   // PTY(강수형태)를 먼저 판단
   if (pty === 1 || pty === 4) { // 비 또는 소나기
     return (
-      <svg {...base} stroke="#4361ee">
+      <svg {...base} stroke="#6229db">
         <path d="M16 13a4 4 0 0 1-8 0" />
         <path d="M20 16.58A5 5 0 0 0 18 7h-1.26A8 8 0 1 0 4 15.25" />
         <path d="M8 19v2" />
