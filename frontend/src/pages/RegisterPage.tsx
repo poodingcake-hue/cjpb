@@ -1,0 +1,1146 @@
+import { useState, useMemo, useRef, useEffect } from 'react';
+import { useAppStore } from '../store/useAppStore';
+import ProductSearchModal from '../components/modals/ProductSearchModal';
+import HistoryModal from '../components/modals/HistoryModal';
+import { removeBackground } from '../api/falClient';
+import { cropTransparentMargins } from '../utils/imageCrop';
+
+const RegisterPage = () => {
+  const { allItems, allStockMap, allHistory, apiClient, saveProductToBackend, deleteProductFromBackend, changeProductCodeInBackend } = useAppStore();
+  const [formData, setFormData] = useState({
+    code: '',
+    brand: '',
+    name: '',
+    category: '',
+    colors: '',
+    sizes: '',
+    extra_codes: '',
+    image: ''
+  });
+
+  const [deleteConfirmText, setDeleteConfirmText] = useState('');
+  const [matrixData, setMatrixData] = useState<Record<string, string>>({});
+  const [extraSizes, setExtraSizes] = useState(['', '']); 
+  const [extraColors, setExtraColors] = useState(['']); 
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [isCodeModalOpen, setIsCodeModalOpen] = useState(false);
+  const [newProductCode, setNewProductCode] = useState('');
+  const [isChangingCode, setIsChangingCode] = useState(false);
+  
+  
+  // Active box for pasting images ('main' or color name)
+  const [activeImageBox, setActiveImageBox] = useState('main');
+  // URL input for web images
+  const [webImageUrl, setWebImageUrl] = useState('');
+
+  const fileInputRef = useRef(null);
+
+  // Parse image string to object
+  const imageObj = useMemo(() => {
+    if (!formData.image) return { main: '' };
+    try {
+      const parsed = JSON.parse(formData.image);
+      if (typeof parsed === 'object' && parsed !== null) return parsed;
+      return { main: formData.image };
+    } catch (e) {
+      return { main: formData.image };
+    }
+  }, [formData.image]);
+
+  // AI 치수분석 결과(카테고리별로 필드가 다름 — 하의는 허리둘레/엉덩이둘레/허벅지둘레, 상의·아우터는
+  // 어깨너비/가슴둘레/소매기장 등)를 표로 보여주기 위해, 실제 들어있는 필드를 그대로 열로 사용한다.
+  const sizeAnalysisFields = useMemo(() => {
+    const sizes = imageObj.length_cm;
+    if (!Array.isArray(sizes) || sizes.length === 0) return [];
+    const fieldSet = new Set<string>();
+    sizes.forEach((entry: any) => {
+      Object.keys(entry || {}).forEach(k => { if (k !== 'category') fieldSet.add(k); });
+    });
+    return Array.from(fieldSet);
+  }, [imageObj.length_cm]);
+
+  const updateImageObj = (key: string, url: string) => {
+    const newObj = { ...imageObj, [key]: url };
+    setFormData(prev => ({ ...prev, image: JSON.stringify(newObj) }));
+  };
+
+  const handleChange = (e: any) => {
+    const { name, value } = e.target;
+    setFormData(prev => ({ ...prev, [name]: value }));
+  };
+
+  const handleBlur = (e: any) => {
+    const { name, value } = e.target;
+    if (name) {
+      setFormData(prev => ({ ...prev, [name]: value }));
+    }
+  };
+
+  const handleProductSelect = (item: any) => {
+    const existingStock = allStockMap[String(item.code)] || [];
+    let colorVal = '';
+    let sizeVal = '';
+
+    const sList: string[] = [];
+    const cList: string[] = [];
+
+    // 사이즈는 마스터에 등록된 입력 순서를 FIRST로 깐다.
+    // 재고를 먼저 넣으면 백엔드 GROUP BY의 사전순이 들어오고, 이 값이 그대로
+    // 저장되면서 products.sizes에 보존돼 있던 입력 순서를 덮어써 버린다.
+    if (item.sizes) {
+      const ms = Array.isArray(item.sizes) ? item.sizes : String(item.sizes).split(',');
+      ms.forEach((s: any) => {
+        const trimmed = String(s).trim();
+        if (trimmed && !sList.includes(trimmed)) sList.push(trimmed);
+      });
+    }
+
+    // 이관 잔재인 '-' 자리표시자는 담지 않는다. 그대로 저장되면 products.sizes/colors가
+    // 오염되고, 재고 매트릭스에도 '-' 칸이 생겨 새 재고가 거기에 쌓인다.
+    const isPlaceholder = (v: any) => {
+      const t = String(v ?? '').trim();
+      return t === '' || t === '-';
+    };
+
+    // 마스터에 없는 사이즈는 재고 입력 순서(inventory_history 삽입 순서)로 붙인다.
+    const entryOrder: string[] = [];
+    [...(allHistory || [])]
+      .filter((l: any) => String(l.code) === String(item.code))
+      .sort((a: any, b: any) => {
+        const d = (new Date(a.date) as any) - (new Date(b.date) as any);
+        return d !== 0 ? d : Number(a.id || 0) - Number(b.id || 0);
+      })
+      .forEach((l: any) => {
+        const s = String(l.size || '').trim();
+        if (s && !entryOrder.includes(s)) entryOrder.push(s);
+      });
+
+    [...existingStock]
+      .sort((a: any, b: any) => {
+        const ia = entryOrder.indexOf(String(a.size)), ib = entryOrder.indexOf(String(b.size));
+        if (ia === ib) return 0;
+        if (ia === -1) return 1;
+        if (ib === -1) return -1;
+        return ia - ib;
+      })
+      .forEach((s: any) => {
+        if (s.size && !isPlaceholder(s.size) && !sList.includes(String(s.size))) sList.push(String(s.size));
+      });
+
+    // 색상 순서는 건드리지 않는다 (기존대로 재고 우선 -> 마스터 순).
+    existingStock.forEach((s: any) => {
+      if (s.color && !isPlaceholder(s.color) && !cList.includes(String(s.color))) cList.push(String(s.color));
+    });
+
+    if (item.colors) {
+      const mc = Array.isArray(item.colors) ? item.colors : String(item.colors).split(',');
+      mc.forEach((c: any) => {
+        const trimmed = String(c).trim();
+        if (trimmed && !cList.includes(trimmed)) cList.push(trimmed);
+      });
+    }
+
+    colorVal = cList.join(', ');
+    sizeVal = sList.join(', ');
+
+    setFormData({
+      code: item.code || '',
+      brand: item.brand || '',
+      name: item.name || '',
+      category: item.category || '',
+      colors: colorVal,
+      sizes: sizeVal,
+      extra_codes: item.extra_codes || '',
+      image: item.image || ''
+    });
+
+    setDeleteConfirmText('');
+
+    // Matrix is always "how many to add now" — never prefilled with existing stock,
+    // so it never doubles as an editable "current total" field.
+    setMatrixData({});
+  };
+
+  const handleMatrixChange = (color: string, size: string, value: string) => {
+    setMatrixData(prev => ({ ...prev, [`${color}_${size}`]: value }));
+  };
+
+  const handleExtraSizeChange = (index: number, value: string) => {
+    const newSizes = [...extraSizes];
+    newSizes[index] = value;
+    setExtraSizes(newSizes);
+  };
+
+  const handleExtraColorChange = (index: number, value: string) => {
+    const newColors = [...extraColors];
+    newColors[index] = value;
+    setExtraColors(newColors);
+  };
+
+  const handleExtraCodesChange = (e: any) => {
+    const val = e.target.value;
+    const items = val.split(',');
+    if (items.length > 4) {
+      alert('멀티상품코드는 최대 4개까지만 등록 가능합니다.');
+      const limited = items.slice(0, 4).join(',');
+      setFormData(prev => ({ ...prev, extra_codes: limited }));
+      return;
+    }
+    setFormData(prev => ({ ...prev, extra_codes: val }));
+  };
+
+  const cleanExtraCodes = (raw: string) => {
+    if (!raw) return '';
+    return raw.split(',').map(s => s.trim()).filter(Boolean).slice(0, 4).join(', ');
+  };
+
+  const colors = useMemo(() => formData.colors.split(',').map(s => s.trim()).filter(Boolean), [formData.colors]);
+  const sizes = useMemo(() => formData.sizes.split(',').map(s => s.trim()).filter(Boolean), [formData.sizes]);
+
+  const stockMap = allStockMap[String(formData.code)] || [];
+  const isAdditional = stockMap.length > 0;
+
+  // Handle uploading a file to Cloudflare Worker via backend
+  const uploadFile = async (file: File) => {
+    try {
+      setIsUploading(true);
+      const img = new Image();
+      img.src = URL.createObjectURL(file);
+      await new Promise((resolve, reject) => { img.onload = resolve; img.onerror = reject; });
+
+      const canvas = document.createElement('canvas');
+      canvas.width = img.width;
+      canvas.height = img.height;
+      const ctx = canvas.getContext('2d');
+      if (ctx) ctx.drawImage(img, 0, 0);
+
+      const webpBlob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/webp', 0.85));
+      if (!webpBlob) throw new Error('WebP conversion failed');
+      const webpFile = new File([webpBlob], file.name.replace(/\.[^/.]+$/, "") + ".webp", { type: 'image/webp' });
+      URL.revokeObjectURL(img.src);
+
+      const uploadFormData = new FormData();
+      uploadFormData.append('file', webpFile);
+
+      const res = await apiClient.post('', uploadFormData, {
+        headers: {
+          'Content-Type': 'multipart/form-data'
+        }
+      });
+      const data = res.data;
+      
+      if (data.success) {
+        updateImageObj(activeImageBox, data.imageUrl);
+      } else {
+        alert('업로드 실패: ' + data.message);
+      }
+    } catch (error) {
+      console.error('Upload error:', error);
+      alert('이미지 업로드 중 오류가 발생했습니다.');
+    } finally {
+      setIsUploading(false);
+      if (fileInputRef.current) (fileInputRef.current as any).value = '';
+    }
+  };
+
+  const handleImageUpload = (e: any) => {
+    const file = e.target.files?.[0];
+    if (file) uploadFile(file);
+  };
+
+  const handleLoadWebImage = () => {
+    if (webImageUrl) {
+      updateImageObj(activeImageBox, webImageUrl);
+      setWebImageUrl('');
+    }
+  };
+
+  const handleAnalyzeSizeChart = async () => {
+    const imageUrl = imageObj.size;
+    if (!imageUrl) {
+      alert('상세사이즈 이미지를 먼저 등록해주세요!');
+      return;
+    }
+    if (!formData.code) {
+      alert('상품코드를 먼저 입력해주세요!');
+      return;
+    }
+
+    setIsAnalyzing(true);
+    try {
+      const response = await fetch(imageUrl);
+      const blob = await response.blob();
+      const reader = new FileReader();
+      const base64Data = await new Promise<string>((resolve, reject) => {
+        reader.onloadend = () => {
+          const result = reader.result as string;
+          const base64 = result.substring(result.indexOf(',') + 1);
+          resolve(base64);
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+      });
+      
+      const res = await apiClient.post('', {
+        type: 'analyze_size_chart',
+        data: {
+          imageBase64: base64Data,
+          mimeType: blob.type,
+          category: formData.category
+        }
+      });
+      
+      if (res.data.success && res.data.data && res.data.data.sizes) {
+        const parsedSizes = res.data.data.sizes;
+        // 마스터 정보(사이즈 콤마)는 덮어쓰지 않고 내부 데이터(image.length_cm)에만 저장합니다.
+        
+        const newImageObj = {
+          ...imageObj,
+          length_cm: parsedSizes
+        };
+        const newImageStr = JSON.stringify(newImageObj);
+
+        setFormData(prev => ({
+          ...prev,
+          image: newImageStr
+        }));
+
+        // 이미지등록 쪽 "상품 저장" 버튼을 누르지 않아도 치수분석 결과가 바로 DB에 반영되도록,
+        // 여기서 현재 폼 데이터를 그대로 upsert한다 (이미지 누끼 처리는 하지 않음 — 그건 상품 저장의 몫).
+        await saveProductToBackend({ ...formData, image: newImageStr, isMaster: true });
+
+        alert('AI 치수 분석 완료! 사이즈 목록이 자동으로 입력되고 데이터베이스에 저장되었습니다.');
+      } else {
+        alert('치수 분석 실패: ' + (res.data.error || '알 수 없는 에러가 발생했습니다.'));
+      }
+    } catch (e: any) {
+      console.error(e);
+      alert('치수 분석 에러: ' + e.message);
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
+
+  // Paste Event Listener for Global document
+  useEffect(() => {
+    const handlePaste = async (e: any) => {
+      // Don't intercept if typing in an input (except our webImageUrl input)
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
+        if (e.target.name !== 'webImageInput') return; 
+      }
+
+      const items = e.clipboardData.items;
+      let filePasted = false;
+
+      for (let i = 0; i < items.length; i++) {
+        if (items[i].type.indexOf('image') !== -1) {
+          const file = items[i].getAsFile();
+          if (file) {
+            e.preventDefault();
+            filePasted = true;
+            uploadFile(file);
+            break;
+          }
+        }
+      }
+
+      // If text (URL) was pasted and we aren't in an input box
+      if (!filePasted && e.target.tagName !== 'INPUT') {
+        const text = e.clipboardData.getData('text');
+        if (text && (text.startsWith('http://') || text.startsWith('https://'))) {
+          e.preventDefault();
+          updateImageObj(activeImageBox, text);
+        }
+      }
+    };
+
+    document.addEventListener('paste', handlePaste);
+    return () => {
+      document.removeEventListener('paste', handlePaste);
+    };
+  }, [activeImageBox, imageObj]); // Dependencies ensure we use current activeImageBox
+
+  // "상품 기본 정보" 저장 버튼 전용: 마스터 정보(코드/브랜드/상품명/카테고리/색상/사이즈/멀티코드)만 저장하고
+  // 이미지는 손대지 않는다 (누끼/리사이즈는 "이미지 등록" 저장 버튼에서만 실행됨).
+  const handleSaveBasicInfo = async () => {
+    if (!formData.code) {
+       alert("상품코드를 먼저 입력해주세요!");
+       return;
+    }
+    // 삭제여부란에 '바로삭제'가 입력된 경우 저장 버튼 클릭 시 삭제 실행
+    if (deleteConfirmText.trim() === '바로삭제') {
+       await handleDeleteProduct();
+       return;
+    }
+    try {
+      const sanitized = {
+        ...formData,
+        extra_codes: cleanExtraCodes(formData.extra_codes),
+        isMaster: true
+      };
+      await saveProductToBackend(sanitized);
+      setFormData(prev => ({ ...prev, extra_codes: sanitized.extra_codes }));
+      alert("상품 기본 정보가 저장되었습니다.");
+    } catch (error) {
+      alert("상품 기본 정보 저장에 실패했습니다. 다시 시도해주세요.");
+    }
+  };
+
+  const handleDeleteProduct = async () => {
+    if (!formData.code) {
+      alert('삭제할 상품을 먼저 선택하거나 상품코드를 입력해주세요!');
+      return;
+    }
+    if (deleteConfirmText.trim() !== '바로삭제') {
+      alert("삭제를 진행하려면 삭제여부란에 '바로삭제'를 정확히 입력해주세요.");
+      return;
+    }
+    const pCode = String(formData.code);
+    const confirmMsg = `[상품코드: ${pCode}] ${formData.brand || ''} ${formData.name || ''}\n\n정말로 이 상품과 관련된 모든 데이터(마스터 정보, 실시간 재고, 입출고 이력, 대여, 착장, 특이사항, 준비물)를 영구 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다.`;
+    if (!window.confirm(confirmMsg)) {
+      return;
+    }
+
+    try {
+      setIsUploading(true);
+      await deleteProductFromBackend(pCode);
+      setFormData({
+        code: '',
+        brand: '',
+        name: '',
+        category: '',
+        colors: '',
+        sizes: '',
+        extra_codes: '',
+        image: ''
+      });
+      setDeleteConfirmText('');
+      setMatrixData({});
+      alert(`[상품코드: ${pCode}] 상품 및 모든 데이터가 성공적으로 삭제되었습니다.`);
+    } catch (e: any) {
+      alert('상품 삭제 중 오류가 발생했습니다: ' + (e.message || e));
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const handleChangeProductCodeSubmit = async () => {
+    const oldCode = String(formData.code).trim();
+    const newCode = String(newProductCode).trim();
+
+    if (!oldCode) {
+      alert('상품을 먼저 불러와주세요.');
+      return;
+    }
+    if (!newCode) {
+      alert('신규 상품코드를 입력해주세요.');
+      return;
+    }
+    if (oldCode === newCode) {
+      alert('기존 상품코드와 동일합니다. 다른 코드를 입력해주세요.');
+      return;
+    }
+
+    // Check if newCode already exists in allItems (master items)
+    const exists = allItems.some(i => i.isMaster && String(i.code) === newCode);
+    if (exists) {
+      alert(`신규 상품코드 [${newCode}]는 이미 시스템에 등록되어 있는 상품코드입니다.\n중복되지 않는 다른 코드를 입력해주세요.`);
+      return;
+    }
+
+    const confirmMsg = `[상품코드 변경 확인]\n\n현재 코드: ${oldCode}\n변경할 코드: ${newCode}\n\n이 상품의 모든 데이터(마스터 정보, 실시간 재고, 입출고/대여/반납 이력, 착장, 메모, 준비물)가 새 코드로 일괄 변경됩니다.\n계속 진행하시겠습니까?`;
+    if (!window.confirm(confirmMsg)) {
+      return;
+    }
+
+    try {
+      setIsChangingCode(true);
+      await changeProductCodeInBackend(oldCode, newCode);
+      setFormData(prev => {
+        let extra = prev.extra_codes || '';
+        if (extra) {
+          const list = extra.split(',').map(s => s.trim()).filter(c => c && c !== newCode);
+          extra = list.join(', ');
+        }
+        return { ...prev, code: newCode, extra_codes: extra };
+      });
+      setIsCodeModalOpen(false);
+      setNewProductCode('');
+      alert(`[성공] 상품코드가 [${oldCode}]에서 [${newCode}]로 성공적으로 변경되었습니다.`);
+    } catch (e: any) {
+      console.error(e);
+      alert('상품코드 변경 중 오류가 발생했습니다: ' + (e.message || e));
+    } finally {
+      setIsChangingCode(false);
+    }
+  };
+
+  const handleSaveProduct = async () => {
+    if (!formData.code) {
+       alert("상품코드를 먼저 입력해주세요!");
+       return;
+    }
+
+    // 삭제여부란에 '바로삭제'가 입력된 경우 저장 버튼 클릭 시 삭제 실행
+    if (deleteConfirmText.trim() === '바로삭제') {
+       await handleDeleteProduct();
+       return;
+    }
+
+    try {
+        setIsUploading(true);
+        alert("저장을 시작합니다. (이미지 배경 제거(누끼) 작업이 포함되어 약 10~20초 정도 소요될 수 있습니다...)");
+        
+        // --- 1. 누끼(배경 제거) 작업 ---
+        const processedImageObj = { ...imageObj };
+        for (const key of Object.keys(processedImageObj)) {
+            // web, main(전체이미지, 참고용 원본 그대로 저장), size, size_chart, length_cm 등은
+            // 누끼/리사이즈 대상이 아님 — 컬러별 옷 이미지만 누끼 + 총장 비례 리사이즈 처리한다.
+            if (key !== 'web' && key !== 'main' && key !== 'size' && key !== 'size_chart' && key !== 'length_cm') {
+                try {
+                    let imgData = processedImageObj[key];
+                    if (!imgData) continue;
+                    
+                    console.log(`[누끼] 키: ${key}, 데이터 시작: ${imgData.substring(0, 60)}...`);
+                    
+                    // 이미 누끼 처리된 R2 URL이면 건너뛰기 (파일명에 "nukki"가 포함)
+                    if (imgData.includes('nukki')) {
+                        console.log(`[누끼] ${key}: 이미 누끼 처리 완료 → 건너뜀`);
+                        continue;
+                    }
+                    
+                    // R2 URL 또는 외부 URL → 프록시로 Base64 변환
+                    if (imgData.startsWith('http://') || imgData.startsWith('https://')) {
+                        console.log(`[누끼] ${key}: URL 감지 → 프록시로 Base64 변환 시도`);
+                        const proxyRes = await apiClient.post('', { type: 'proxy_image', data: { imageUrl: imgData } });
+                        if (proxyRes.data && proxyRes.data.success) {
+                            imgData = proxyRes.data.base64;
+                            console.log(`[누끼] ${key}: 프록시 성공, Base64 길이: ${imgData.length}`);
+                        } else {
+                            throw new Error("프록시 변환 실패: " + proxyRes.data?.message);
+                        }
+                    }
+
+                    // data:image 형태 → fal.ai 누끼 처리
+                    if (imgData.startsWith('data:image')) {
+                        console.log(`[누끼] ${key}: fal.ai 누끼 요청 시작...`);
+                        let nukkiResult = await removeBackground(imgData);
+                        console.log(`[누끼] ${key}: 누끼 완료! 결과: ${nukkiResult}`);
+
+                        // 투명 여백 자동 크롭 & 총장(cm) 비례 이미지 리사이즈 (1cm = 8px)
+                        try {
+                            console.log(`[누끼] ${key}: 이미지 여백 크롭 & 총장 비례 리사이즈 시작...`);
+                            
+                            let targetLengthCm: number | undefined = undefined;
+                            if (processedImageObj.length_cm && Array.isArray(processedImageObj.length_cm) && processedImageObj.length_cm.length > 0) {
+                                const baseEntry = processedImageObj.length_cm[0]; // 가장 작은 사이즈
+                                const parsedLen = parseFloat(baseEntry['총장']);
+                                if (!isNaN(parsedLen) && parsedLen > 0) {
+                                    targetLengthCm = parsedLen;
+                                    console.log(`[누끼] ${key}: 기준 총장(cm): ${targetLengthCm}cm → 목표 높이: ${targetLengthCm * 8}px`);
+                                }
+                            }
+                            
+                            const croppedBase64 = await cropTransparentMargins(nukkiResult, targetLengthCm);
+                            
+                            // 크롭/리사이즈된 이미지를 R2에 업로드
+                            const blob = await (await fetch(croppedBase64)).blob();
+                            const formData = new FormData();
+                            formData.append('file', blob, `nukki_cropped_${Date.now()}.png`);
+                            
+                            const uploadRes = await apiClient.post('', formData, {
+                                headers: { 'Content-Type': 'multipart/form-data' }
+                            });
+                            
+                            if (uploadRes.data && uploadRes.data.success) {
+                                nukkiResult = uploadRes.data.imageUrl;
+                                console.log(`[누끼] ${key}: 여백 크롭 & 리사이즈 완료! R2 저장: ${nukkiResult}`);
+                            }
+                        } catch (cropErr) {
+                            console.warn(`[누끼] ${key}: 크롭 과정 오류, 누끼 원본 유지:`, cropErr);
+                        }
+
+                        processedImageObj[key] = nukkiResult;
+                    } else {
+                        console.warn(`[누끼] ${key}: 처리 불가 (data:image로 시작하지 않음)`);
+                    }
+                } catch (e: any) {
+                    console.error(`[누끼] ${key}: 실패!!!`, e);
+                    alert(`누끼 실패 (${key}): ${e.message || e}. 원본 이미지로 저장합니다.`);
+                    // 실패 시 원본 이미지를 그대로 사용
+                }
+            }
+        }
+        // 상태 업데이트하여 화면에도 반영
+        setFormData(prev => ({ ...prev, image: JSON.stringify(processedImageObj) }));
+
+        // --- 2. 상품 저장 ---
+        const newProduct = {
+           ...formData,
+           extra_codes: cleanExtraCodes(formData.extra_codes),
+           image: JSON.stringify(processedImageObj),
+           isMaster: true
+        };
+        await saveProductToBackend(newProduct);
+        setFormData(prev => ({ ...prev, extra_codes: newProduct.extra_codes }));
+        alert("상품 정보(마스터/이미지)가 성공적으로 등록되었습니다! 누끼 작업 완료!");
+    } catch (error) {
+        alert("상품 정보 저장에 실패했습니다. 다시 시도해주세요.");
+    } finally {
+        setIsUploading(false);
+    }
+  };
+
+  // Matrix cells are always "how many to add right now" — never a delta against
+  // whatever the current total happens to be. Every positive cell becomes a
+  // brand-new IN event in inventory_history; empty/0 cells are simply skipped.
+  const handleSaveInventory = async () => {
+    if (!formData.code) { alert('상품을 먼저 불러오세요.'); return; }
+
+    const newLogs: any[] = [];
+    const timestamp = new Date().toISOString();
+
+    const addLog = (color: string, size: string, note: string) => {
+      const raw = matrixData[`${color}_${size}`];
+      if (raw === undefined) return;
+      const qty = Number(raw);
+      if (qty > 0) {
+        newLogs.push({ code: formData.code, color, size, type: 'IN', qty, date: timestamp, actor: '관리자', note });
+      }
+    };
+
+    colors.forEach(c => {
+      sizes.forEach(s => addLog(c, s, isAdditional ? '재고 추가 입고' : '신규 재고 등록'));
+      extraSizes.forEach(s => { if (s) addLog(c, s, '신규 사이즈 추가'); });
+    });
+
+    extraColors.forEach(c => {
+      if (!c) return;
+      sizes.forEach(s => addLog(c, s, '신규 색상 추가'));
+      extraSizes.forEach(s => { if (s) addLog(c, s, '신규 색상/사이즈 추가'); });
+    });
+
+    if (newLogs.length === 0) { alert('입고할 수량을 입력해주세요.'); return; }
+
+    try {
+      // Inventory is derived from inventory_history — saving stock means only
+      // appending the IN events above, never writing a stock snapshot directly.
+      // saveHistoryToBackend가 저장한 qty를 allStockMap에 그대로 합산하므로
+      // 여기서 따로 setAllStockMap을 호출하면 이중 반영된다.
+      const { saveHistoryToBackend } = useAppStore.getState();
+      await saveHistoryToBackend(newLogs);
+      setMatrixData({});
+      alert('재고 저장이 완료되었습니다.');
+    } catch (e) {
+      console.error(e);
+      alert('재고 저장 중 오류가 발생했습니다.');
+    }
+  };
+
+  
+  // Compute Web Reference Image URL automatically
+  const webReferenceUrl = useMemo(() => {
+    if (formData.code && String(formData.code).length >= 8) {
+       const code = String(formData.code);
+       // CJ온스타일 상품 이미지: goods_images/{앞2자리}/{뒤3자리}/{코드}L.jpg
+       return `https://image.cjonstyle.net/goods_images/${code.substring(0, 2)}/${code.slice(-3)}/${code}L.jpg`;
+    }
+    return '';
+  }, [formData.code]);
+
+  const renderImageBox = (boxKey: string, title: string) => {
+    const isActive = activeImageBox === boxKey;
+    const imgUrl = imageObj[boxKey];
+    
+    let displayUrl = imgUrl;
+
+    return (
+      <div 
+        key={boxKey}
+        onClick={() => setActiveImageBox(boxKey)}
+        style={{ 
+          display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '5px',
+          padding: '10px',
+          border: isActive ? '2px solid #3b82f6' : '1px solid transparent',
+          borderRadius: '8px',
+          background: isActive ? '#eff6ff' : 'transparent',
+          transition: 'all 0.2s',
+          cursor: 'pointer'
+        }}
+        title="클릭하여 선택 후 Ctrl+V로 이미지 붙여넣기"
+      >
+        <span style={{ fontSize: '12px', fontWeight: 'bold', color: isActive ? '#1d4ed8' : '#333' }}>
+          {title} {isActive && '(선택됨)'}
+        </span>
+        
+        <div 
+          style={{ 
+            width: '120px', height: '120px', 
+            border: '1px dashed #ccc', borderRadius: '4px', 
+            backgroundImage: displayUrl ? `url(${displayUrl})` : 'none',
+            backgroundSize: 'contain', backgroundRepeat: 'no-repeat', backgroundPosition: 'center',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            backgroundColor: '#fafafa',
+            ...(displayUrl && boxKey !== 'main' && boxKey !== 'size' ? {
+              // Add checkerboard background to visualize transparency (nukki)
+              backgroundImage: `url(${displayUrl}), repeating-linear-gradient(45deg, #ccc 25%, transparent 25%, transparent 75%, #ccc 75%, #ccc), repeating-linear-gradient(45deg, #ccc 25%, #fafafa 25%, #fafafa 75%, #ccc 75%, #ccc)`,
+              backgroundPosition: 'center, 0 0, 4px 4px',
+              backgroundSize: 'contain, 8px 8px, 8px 8px',
+              // 체크보드 레이어(2,3번째)는 박스 전체를 타일로 채워야 하는데, 위쪽 base 스타일의
+              // backgroundRepeat: 'no-repeat'가 단일 값이라 모든 레이어에 적용되면서 체크보드가
+              // 왼쪽 위 8px 한 칸만 찍히고 끝나던 버그. 레이어별로 따로 지정해서 고침.
+              backgroundRepeat: 'no-repeat, repeat, repeat'
+            } : {}),
+            position: 'relative'
+          }}
+        >
+          {isUploading && isActive ? (
+            <span style={{ color: '#007bff', fontSize: '12px', fontWeight: 'bold' }}>업로드 중...</span>
+          ) : !displayUrl ? (
+            <span style={{ color: '#999', fontSize: '20px' }}>+</span>
+          ) : null}
+        </div>
+
+        {boxKey === 'size' && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              handleAnalyzeSizeChart();
+            }}
+            disabled={isAnalyzing}
+            className="m-btn"
+            style={{
+              marginTop: '5px',
+              padding: '4px 8px',
+              fontSize: '11px',
+              borderRadius: '4px',
+              background: imgUrl ? '#0284c7' : '#94a3b8',
+              color: '#fff',
+              border: 'none',
+              fontWeight: 'bold',
+              cursor: 'pointer',
+              width: '100%'
+            }}
+          >
+            {isAnalyzing ? '분석 및 저장 중...' : '🔍 AI 치수분석 및 저장'}
+          </button>
+        )}
+      </div>
+    );
+  };
+
+  return (
+    <section className="page-section active" id="page-register">
+      <div style={{ display: 'flex', gap: '20px', flexWrap: 'wrap', marginBottom: '20px' }}>
+        
+        {/* Left Column: Product Info */}
+        <div style={{ flex: 1, minWidth: '320px' }}>
+          <div className="dash-card">
+            <div className="dash-title-row" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span className="dash-title">상품 기본 정보</span>
+              <button 
+                className="m-btn m-btn-confirm" 
+                onClick={handleSaveBasicInfo} 
+                style={{ 
+                  padding: '4px 12px', 
+                  fontSize: '12px', 
+                  borderRadius: '4px', 
+                  fontWeight: 'bold', 
+                  width: 'auto', 
+                  flex: 'none',
+                  background: deleteConfirmText.trim() === '바로삭제' ? '#dc2626' : undefined
+                }}
+              >
+                {deleteConfirmText.trim() === '바로삭제' ? '삭제 실행' : '저장'}
+              </button>
+            </div>
+            
+            <div style={{ display: 'flex', alignItems: 'center', marginTop: '15px', marginBottom: '10px' }}>
+              <span style={{ width: '100px', fontWeight: 'bold', fontSize: '13px', color: '#333' }}>상품코드</span>
+              <input type="text" name="code" className="modal-input" value={formData.code} onChange={handleChange} onBlur={handleBlur} style={{ flex: 1, margin: 0, borderTopRightRadius: 0, borderBottomRightRadius: 0 }} />
+              <button onClick={() => setIsSearchOpen(true)} style={{ padding: '0 10px', height: '38px', background: '#e9ecef', border: '1px solid #ced4da', borderLeft: 'none', borderTopRightRadius: '4px', borderBottomRightRadius: '4px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold', color: '#495057', width: 'auto' }}>불러오기</button>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', marginBottom: '10px' }}>
+              <span style={{ width: '100px', fontWeight: 'bold', fontSize: '13px', color: '#333' }}>브랜드</span>
+              <input type="text" name="brand" className="modal-input" value={formData.brand} onChange={handleChange} onBlur={handleBlur} style={{ flex: 1, margin: 0 }} />
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', marginBottom: '10px' }}>
+              <span style={{ width: '100px', fontWeight: 'bold', fontSize: '13px', color: '#333' }}>상품명</span>
+              <input type="text" name="name" className="modal-input" value={formData.name} onChange={handleChange} onBlur={handleBlur} style={{ flex: 1, margin: 0 }} />
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', marginBottom: '10px' }}>
+              <span style={{ width: '100px', fontWeight: 'bold', fontSize: '13px', color: '#333' }}>카테고리</span>
+              <input type="text" name="category" className="modal-input" placeholder="상의/하의/아우터/잡화" value={formData.category} onChange={handleChange} onBlur={handleBlur} style={{ flex: 1, margin: 0 }} />
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', marginBottom: '10px' }}>
+              <span style={{ width: '100px', fontWeight: 'bold', fontSize: '13px', color: '#333' }}>색상 (콤마)</span>
+              <input type="text" name="colors" className="modal-input" placeholder="" value={formData.colors} onChange={handleChange} onBlur={handleBlur} style={{ flex: 1, margin: 0 }} />
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', marginBottom: '10px' }}>
+              <span style={{ width: '100px', fontWeight: 'bold', fontSize: '13px', color: '#333' }}>사이즈 (콤마)</span>
+              <input type="text" name="sizes" className="modal-input" placeholder="" value={formData.sizes} onChange={handleChange} onBlur={handleBlur} style={{ flex: 1, margin: 0 }} />
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', marginBottom: '10px' }}>
+              <span style={{ width: '100px', fontWeight: 'bold', fontSize: '13px', color: '#333' }}>멀티코드 (콤마)</span>
+              <input 
+                type="text" 
+                name="extra_codes" 
+                className="modal-input" 
+                placeholder="판매채널/편성표 연계코드 (최대 4개, 콤마 구분)" 
+                value={formData.extra_codes} 
+                onChange={handleExtraCodesChange} 
+                onBlur={handleBlur}
+                style={{ flex: 1, margin: 0 }} 
+              />
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', marginBottom: '10px' }}>
+              <span style={{ width: '100px', fontWeight: 'bold', fontSize: '13px', color: '#dc2626' }}>삭제여부</span>
+              <input 
+                type="text" 
+                placeholder="'바로삭제' 입력 후 저장 클릭 시 완전 삭제" 
+                value={deleteConfirmText} 
+                onChange={(e) => setDeleteConfirmText(e.target.value)} 
+                onBlur={(e) => setDeleteConfirmText(e.target.value)}
+                style={{ 
+                  flex: 1, 
+                  margin: 0,
+                  borderColor: deleteConfirmText.trim() === '바로삭제' ? '#dc2626' : undefined,
+                  color: deleteConfirmText.trim() === '바로삭제' ? '#dc2626' : undefined,
+                  fontWeight: deleteConfirmText.trim() === '바로삭제' ? 'bold' : 'normal'
+                }} 
+                className="modal-input" 
+              />
+              <button
+                type="button"
+                disabled={deleteConfirmText.trim() !== '바로삭제' || !formData.code}
+                onClick={handleDeleteProduct}
+                style={{
+                  marginLeft: '8px',
+                  padding: '0 12px',
+                  height: '38px',
+                  background: deleteConfirmText.trim() === '바로삭제' && formData.code ? '#dc2626' : '#e2e8f0',
+                  color: deleteConfirmText.trim() === '바로삭제' && formData.code ? '#fff' : '#94a3b8',
+                  border: 'none',
+                  borderRadius: '4px',
+                  cursor: deleteConfirmText.trim() === '바로삭제' && formData.code ? 'pointer' : 'not-allowed',
+                  fontWeight: 'bold',
+                  fontSize: '12px',
+                  whiteSpace: 'nowrap'
+                }}
+              >
+                바로삭제
+              </button>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', marginBottom: '10px' }}>
+              <button
+                type="button"
+                disabled={!formData.code}
+                onClick={() => {
+                  setNewProductCode('');
+                  setIsCodeModalOpen(true);
+                }}
+                style={{
+                  padding: '6px 14px',
+                  background: formData.code ? '#4f46e5' : '#e2e8f0',
+                  color: formData.code ? '#fff' : '#94a3b8',
+                  border: 'none',
+                  borderRadius: '4px',
+                  cursor: formData.code ? 'pointer' : 'not-allowed',
+                  fontWeight: 'bold',
+                  fontSize: '12px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  whiteSpace: 'nowrap'
+                }}
+                title={formData.code ? "상품코드를 신규 코드로 일괄 변경합니다" : "상품을 먼저 선택하거나 불러와주세요"}
+              >
+                <span style={{ fontSize: '13px' }}>🔄</span> 상품코드 변경
+              </button>
+            </div>
+          </div>
+
+          {sizeAnalysisFields.length > 0 && (
+            <div className="dash-card" style={{ marginTop: '20px' }}>
+              <div className="dash-title-row">
+                <span className="dash-title">AI 치수분석 결과</span>
+              </div>
+              <div style={{ overflowX: 'auto', marginTop: '10px' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
+                  <thead>
+                    <tr>
+                      <th style={sizeThStyle}>사이즈</th>
+                      {sizeAnalysisFields.map(f => <th key={f} style={sizeThStyle}>{f}</th>)}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {imageObj.length_cm.map((entry: any, i: number) => (
+                      <tr key={i}>
+                        <td style={sizeTdStyle}>{entry.category}</td>
+                        {sizeAnalysisFields.map(f => <td key={f} style={sizeTdStyle}>{entry[f] ?? '-'}</td>)}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Right Column: Images & Matrix */}
+        <div style={{ flex: 2.5, minWidth: '320px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+          
+          <div className="dash-card">
+            <div className="dash-title-row" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span className="dash-title">이미지 등록 (클릭 후 Ctrl+V 로 복사/붙여넣기 가능)</span>
+              <button className="m-btn m-btn-confirm" onClick={handleSaveProduct} style={{ padding: '4px 12px', fontSize: '12px', borderRadius: '4px', fontWeight: 'bold', width: 'auto', flex: 'none' }}>저장</button>
+            </div>
+            
+            
+
+            
+            <div style={{ display: 'flex', flexWrap: 'nowrap', overflowX: 'auto', gap: '10px', alignItems: 'flex-start', paddingBottom: '10px', width: '100%' }}>
+              
+              {/* Reference Web Image Box */}
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '5px', padding: '10px', border: '1px solid transparent' }}>
+                <span style={{ fontSize: '12px', fontWeight: 'bold', color: '#888' }}>웹이미지(참고용)</span>
+                <div 
+                  onClick={() => {
+                      if (formData.code) {
+                          window.open(`https://item.cjonstyle.com/item/${formData.code}`, '_blank');
+                      }
+                  }}
+                  style={{ 
+                    width: '120px', height: '120px', 
+                    border: '1px solid #ddd', borderRadius: '4px', 
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    backgroundColor: '#fff',
+                    cursor: formData.code ? 'pointer' : 'default',
+                    overflow: 'hidden',
+                    position: 'relative'
+                  }}
+                  title={formData.code ? '클릭 시 해당 상품의 웹페이지 열기' : ''}
+                >
+                  {webReferenceUrl ? (
+                      <img 
+                          src={webReferenceUrl} 
+                          alt="웹이미지" 
+                          style={{ width: '100%', height: '100%', objectFit: 'contain' }} 
+                      />
+                  ) : (
+                      <span style={{ color: '#ccc', fontSize: '11px' }}>자동불러오기</span>
+                  )}
+                </div>
+                <div style={{ marginTop: '4px', fontSize: '11px', color: '#999' }}>클릭 시 웹 이동</div>
+                
+              </div>
+              
+              <div style={{ width: '1px', background: '#eee', margin: '0 5px' }}></div>
+              {renderImageBox('main', '전체이미지')}
+              {renderImageBox('size', '상세사이즈')}
+              {colors.map(c => renderImageBox(c, c))}
+            </div>
+          </div>
+
+          <div className="dash-card">
+            <div className="dash-title-row" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span className="dash-title">
+                재고 등록
+                {formData.code && (
+                  isAdditional 
+                  ? <span style={{ fontSize: '12px', color: '#1d4ed8', background: '#dbeafe', padding: '4px 8px', borderRadius: '6px', marginLeft: '8px' }}>🚀 추가 재고 모드</span>
+                  : <span style={{ fontSize: '12px', color: '#047857', background: '#d1fae5', padding: '4px 8px', borderRadius: '6px', marginLeft: '8px' }}>✨ 신규 재고 모드</span>
+                )}
+              </span>
+              {(colors.length > 0 && sizes.length > 0 && formData.code) && (
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <button className="m-btn m-btn-confirm" style={{ padding: '4px 12px', fontSize: '12px', borderRadius: '4px', fontWeight: 'bold', width: 'auto', flex: 'none', background: '#64748b' }} onClick={() => setIsHistoryOpen(true)}>재고 수정</button>
+                  <button className="m-btn m-btn-confirm" onClick={handleSaveInventory} style={{ padding: '4px 12px', fontSize: '12px', borderRadius: '4px', fontWeight: 'bold', width: 'auto', flex: 'none', background: '#047857' }}>재고 저장</button>
+                </div>
+              )}
+            </div>
+            <div id="reg-matrix-container" style={{ marginTop: '10px' }}>
+              {(colors.length > 0 && sizes.length > 0 && formData.code) ? (
+                <div style={{ border: '1px solid #eee', borderRadius: '12px', overflow: 'hidden' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'center', fontSize: '14px', background: 'white' }}>
+                    <thead>
+                      <tr style={{ background: '#f8f9fa', borderBottom: '1px solid #eee' }}>
+                        <th style={{ padding: '15px', fontWeight: 'bold', color: '#333' }}>색상</th>
+                        {sizes.map(s => <th key={s} style={{ padding: '15px', fontWeight: 'bold', color: '#333' }}>{s}</th>)}
+                        {extraSizes.map((val, idx) => (
+                           <th key={`extra-${idx}`} style={{ padding: 0, width: '80px' }}>
+                             <input type="text" placeholder="추가" value={val} onChange={(e) => handleExtraSizeChange(idx, e.target.value)} style={{ width: '100%', height: '50px', border: 'none', textAlign: 'center', fontWeight: 'bold', color: '#333', background: 'transparent', outline: 'none' }} />
+                           </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {colors.map(c => (
+                        <tr key={c} style={{ borderBottom: '1px solid #f1f1f1' }}>
+                          <td style={{ padding: '15px', fontWeight: 'bold', color: '#444', borderRight: '1px solid #f1f1f1', background: '#fafafa', whiteSpace: 'nowrap' }}>{c}</td>
+                          {sizes.map(s => (
+                              <td key={`${c}-${s}`} style={{ padding: '5px' }}>
+                                <input type="number" min="0" className="matrix-input" placeholder="0" value={matrixData[`${c}_${s}`] || ''} onChange={(e) => handleMatrixChange(c, s, e.target.value)} style={{ width: '60px', padding: '8px', textAlign: 'center', border: 'none', background: 'transparent', outline: 'none', fontSize: '14px' }} />
+                              </td>
+                          ))}
+                          {extraSizes.map((val, idx) => (
+                             <td key={`extra-td-${idx}`} style={{ padding: '5px' }}>
+                               {val ? <input type="number" min="0" className="matrix-input" value={matrixData[`${c}_${val}`] || ''} onChange={(e) => handleMatrixChange(c, val, e.target.value)} style={{ width: '60px', padding: '8px', textAlign: 'center', border: 'none', background: 'transparent', outline: 'none', fontSize: '14px' }} /> : null}
+                             </td>
+                          ))}
+                        </tr>
+                      ))}
+                      {extraColors.map((cVal, cIdx) => (
+                        <tr key={`extra-color-${cIdx}`} style={{ borderBottom: '1px solid #f1f1f1' }}>
+                          <td style={{ padding: 0, background: '#fafafa', borderRight: '1px solid #f1f1f1' }}>
+                            <input type="text" placeholder="+색상 추가" value={cVal} onChange={(e) => handleExtraColorChange(cIdx, e.target.value)} style={{ width: '100%', height: '50px', border: 'none', textAlign: 'center', fontWeight: 'bold', color: '#444', background: 'transparent', outline: 'none', fontSize: '13px' }} />
+                          </td>
+                          {sizes.map(s => (
+                            <td key={`extra-td-${cIdx}-${s}`} style={{ padding: '5px' }}>
+                              {cVal ? <input type="number" min="0" className="matrix-input" value={matrixData[`${cVal}_${s}`] || ''} onChange={(e) => handleMatrixChange(cVal, s, e.target.value)} style={{ width: '60px', padding: '8px', textAlign: 'center', border: 'none', background: 'transparent', outline: 'none', fontSize: '14px' }} /> : null}
+                            </td>
+                          ))}
+                          {extraSizes.map((sVal, sIdx) => (
+                             <td key={`extra-td-${cIdx}-extra-${sIdx}`} style={{ padding: '5px' }}>
+                               {cVal && sVal ? <input type="number" min="0" className="matrix-input" value={matrixData[`${cVal}_${sVal}`] || ''} onChange={(e) => handleMatrixChange(cVal, sVal, e.target.value)} style={{ width: '60px', padding: '8px', textAlign: 'center', border: 'none', background: 'transparent', outline: 'none', fontSize: '14px' }} /> : null}
+                             </td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div style={{ padding: '20px', textAlign: 'center', color: '#999', fontSize: '13px' }}>상품코드, 색상(콤마 구분), 사이즈(콤마 구분)를 입력하시면 재고 등록 매트릭스가 나타납니다.</div>
+              )}
+            </div>
+          </div>
+          
+        </div>
+
+      </div>
+
+      {/* 상품코드 변경 모달 팝업 */}
+      {isCodeModalOpen && (
+        <div 
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.5)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 9999
+          }}
+          onClick={() => { if (!isChangingCode) setIsCodeModalOpen(false); }}
+        >
+          <div 
+            style={{
+              background: '#fff',
+              borderRadius: '8px',
+              padding: '24px',
+              width: '420px',
+              maxWidth: '90%',
+              boxShadow: '0 10px 25px rgba(0,0,0,0.2)'
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 style={{ margin: '0 0 16px 0', fontSize: '18px', fontWeight: 'bold', color: '#1e293b' }}>
+              🔄 상품코드 변경
+            </h3>
+
+            <div style={{ marginBottom: '14px', background: '#f8fafc', padding: '12px', borderRadius: '6px', fontSize: '13px', border: '1px solid #e2e8f0' }}>
+              <div style={{ marginBottom: '4px' }}>
+                <span style={{ color: '#64748b', fontWeight: 'bold' }}>현재 상품코드: </span>
+                <span style={{ fontWeight: 'bold', color: '#0f172a' }}>{formData.code}</span>
+              </div>
+              <div>
+                <span style={{ color: '#64748b', fontWeight: 'bold' }}>상품명: </span>
+                <span style={{ color: '#334155' }}>{formData.brand ? `[${formData.brand}] ` : ''}{formData.name || '미입력'}</span>
+              </div>
+            </div>
+
+            <div style={{ marginBottom: '16px' }}>
+              <label style={{ display: 'block', fontWeight: 'bold', fontSize: '13px', marginBottom: '6px', color: '#334155' }}>
+                신규 상품코드 입력
+              </label>
+              <input
+                type="text"
+                className="modal-input"
+                placeholder="새로운 상품코드 입력"
+                value={newProductCode}
+                onChange={(e) => setNewProductCode(e.target.value)}
+                style={{ width: '100%', margin: 0, boxSizing: 'border-box' }}
+                disabled={isChangingCode}
+                autoFocus
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    handleChangeProductCodeSubmit();
+                  }
+                }}
+              />
+            </div>
+
+            <div style={{ marginBottom: '18px', background: '#eff6ff', padding: '12px', borderRadius: '6px', fontSize: '12px', color: '#1e40af', lineHeight: 1.5, border: '1px solid #bfdbfe' }}>
+              <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>⚠️ 확인 및 안내 사항:</div>
+              <ul style={{ margin: 0, paddingLeft: '18px' }}>
+                <li>상품 마스터, 실시간 재고, 입출고/대여/반납 이력, 착장, 특이사항, 준비물 데이터의 코드가 신규 코드로 일괄 변경됩니다.</li>
+                <li>기존 코드가 방송 편성표나 판매채널에서 계속 사용된다면 변경 후 [멀티상품코드]란에 기존 코드를 등록해주세요.</li>
+              </ul>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+              <button
+                type="button"
+                className="m-btn"
+                style={{ background: '#e2e8f0', color: '#475569', border: 'none', padding: '8px 16px', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', width: 'auto' }}
+                onClick={() => setIsCodeModalOpen(false)}
+                disabled={isChangingCode}
+              >
+                취소
+              </button>
+              <button
+                type="button"
+                className="m-btn"
+                style={{ background: '#4f46e5', color: '#fff', border: 'none', padding: '8px 16px', borderRadius: '4px', cursor: isChangingCode ? 'not-allowed' : 'pointer', fontWeight: 'bold', width: 'auto' }}
+                onClick={handleChangeProductCodeSubmit}
+                disabled={isChangingCode}
+              >
+                {isChangingCode ? '변경 중...' : '저장 및 변경'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <ProductSearchModal isOpen={isSearchOpen} onClose={() => setIsSearchOpen(false)} onSelect={handleProductSelect} />
+      <HistoryModal isOpen={isHistoryOpen} onClose={() => setIsHistoryOpen(false)} productCode={formData.code} />
+    </section>
+  );
+};
+
+const sizeThStyle = {
+  padding: '6px 8px',
+  textAlign: 'left' as const,
+  fontWeight: 'bold' as const,
+  color: '#334155',
+  borderBottom: '2px solid #cbd5e1',
+  whiteSpace: 'nowrap' as const
+};
+
+const sizeTdStyle = {
+  padding: '6px 8px',
+  color: '#475569',
+  borderBottom: '1px solid #eee',
+  whiteSpace: 'nowrap' as const
+};
+
+export default RegisterPage;

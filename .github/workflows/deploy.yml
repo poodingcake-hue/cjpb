@@ -3,6 +3,10 @@ name: Deploy to GitHub Pages
 on:
   push:
     branches: [main]
+    # 앱에서 저장(db/·uploads/)할 때마다 재배포할 필요는 없다 (앱이 GitHub에서 바로 읽음)
+    paths-ignore:
+      - "db/**"
+      - "uploads/**"
   # 데이터 업데이트 봇의 커밋은 push 이벤트를 만들지 않아서 workflow_run 으로 이어받습니다.
   workflow_run:
     workflows: ["Update CJ Data"]
@@ -44,6 +48,7 @@ jobs:
         run: npm run build
         env:
           VITE_BASE: /${{ github.event.repository.name }}/
+          VITE_GH_REPO: ${{ github.repository }}
 
       - uses: actions/configure-pages@v5
 

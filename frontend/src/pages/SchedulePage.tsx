@@ -1,98 +1,232 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { useAppStore } from '../store/useAppStore';
+import { getProductImage } from '../utils/helpers';
 import { useNavigate } from 'react-router-dom';
-import { useAppData, totalQty, NO_IMAGE, DAYS, type SlotItem } from '../data';
+import WeatherBadge from '../components/WeatherBadge';
+
+const parseTime = (timeStr: any) => {
+  if (!timeStr) return 0;
+  const match = timeStr.match(/(\d{1,2}):(\d{1,2})/);
+  if (match) return parseInt(match[1]) * 60 + parseInt(match[2]);
+  return 0;
+};
 
 const SchedulePage = () => {
-  const { loading, error, slots, inventory, scheduleUpdatedAt } = useAppData();
+  const { allItems, allStockMap, selDate, setSelDate, initApp, isLoading, allSupplies, allWeather } = useAppStore();
   const navigate = useNavigate();
-  const dates = useMemo(() => Array.from(new Set(slots.map(s => s.date))).sort(), [slots]);
-  const [selDate, setSelDate] = useState('');
-  const [showAllSlots, setShowAllSlots] = useState(false);
-  const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  const date = selDate || dates[0] || '';
+  // 전체내역(미보유 상품 포함)을 펼쳐 둔 시간대
+  const [expandedTimes, setExpandedTimes] = useState<Set<string>>(new Set());
 
-  const daySlots = useMemo(() => {
-    const list = slots.filter(s => s.date === date);
-    return showAllSlots ? list : list.filter(s => s.items.some(i => i.owned));
-  }, [slots, date, showAllSlots]);
-
-  const toggle = (key: string) => {
-    const n = new Set(expanded);
-    if (n.has(key)) n.delete(key); else n.add(key);
-    setExpanded(n);
+  const toggleTime = (time: string) => {
+    setExpandedTimes(prev => {
+      const next = new Set(prev);
+      if (next.has(time)) next.delete(time);
+      else next.add(time);
+      return next;
+    });
   };
 
-  if (loading) return <div id="loading-overlay" style={{ display: 'flex' }}><div className="spinner"></div></div>;
-  if (error) return <p className="empty-msg">데이터를 불러오지 못했어요: {error}</p>;
+  useEffect(() => {
+    if (allItems.length === 0 && !isLoading) {
+      initApp();
+    }
+  }, [allItems, isLoading, initApp]);
 
-  const card = (it: SlotItem) => {
-    const inv = inventory[it.code];
-    const q = totalQty(inv);
-    return (
-      <div key={it.code} className={`p-card ${it.owned ? 'is-owned' : 'is-unowned'}`}
-        onClick={it.owned ? () => navigate(`/detail/${it.code}`) : undefined}>
-        <div className="p-img-box">
-          <img src={it.image || NO_IMAGE} onError={e => { (e.target as HTMLImageElement).src = NO_IMAGE; }} className="p-img" alt={it.name} />
-          {it.owned && <span className={`qty-badge ${q === 0 ? 'zero' : ''}`}>재고 {q}</span>}
-        </div>
-        <div className="p-info">
-          <div className="p-brand">{it.brand}</div>
-          <div className="p-name">{it.name}</div>
-          <div className="p-meta">{it.code}{it.type === '함께방송' ? ' · 함께방송' : ''}</div>
-        </div>
-      </div>
+  // 등록된(=보유 중인) 상품 코드. 편성표 본문은 이 코드에 해당하는 상품만 노출한다.
+  const masterCodes = useMemo(() => {
+    const codes = new Set(allItems.filter(i => i.isMaster).map(i => String(i.code)));
+    allItems.filter(i => i.isMaster && i.extra_codes).forEach(i => {
+      String(i.extra_codes).split(',').forEach(c => {
+        const trimmed = c.trim();
+        if (trimmed) codes.add(trimmed);
+      });
+    });
+    if (allStockMap) {
+      Object.keys(allStockMap).forEach(code => codes.add(String(code)));
+    }
+    return codes;
+  }, [allItems, allStockMap]);
+
+  const dates = useMemo(() => {
+    const dSet = new Set<string>();
+    const today = new Date();
+    // Use local YYYY-MM-DD
+    const todayKst = new Date(today.getTime() - (today.getTimezoneOffset() * 60000)).toISOString().split('T')[0];
+
+    allItems.forEach(i => {
+      if (!i.isMaster && i.dateKey && i.dateKey >= todayKst && masterCodes.has(String(i.code))) {
+        dSet.add(i.dateKey);
+      }
+    });
+    
+    return Array.from(dSet).sort();
+  }, [allItems, masterCodes]);
+
+  useEffect(() => {
+    if (!selDate && dates.length > 0) {
+      setSelDate(dates[0]);
+    }
+  }, [dates, selDate, setSelDate]);
+
+  // 대표 상품과 '함께 방송하는 상품'에 같은 코드가 중복 수집될 수 있어 시간대별로 중복을 제거한다
+  const groupByTime = (items: any[]) => {
+    const groups: Record<string, any[]> = {};
+    const seen: Record<string, Set<string>> = {};
+    items.forEach(item => {
+      const tmMatch = item.date ? item.date.match(/(\d{1,2}:\d{1,2})/) : null;
+      const key = tmMatch ? tmMatch[1] : "시간미상";
+      if (!groups[key]) { groups[key] = []; seen[key] = new Set(); }
+      const code = String(item.code);
+      if (seen[key].has(code)) return;
+      seen[key].add(code);
+      groups[key].push(item);
+    });
+    return groups;
+  };
+
+  // 선택한 날짜에 편성된 상품 전체 (미보유 상품 포함) — '전체내역'용
+  const fullScheduleGroups = useMemo(() => {
+    if (!selDate) return {};
+
+    return groupByTime(
+      allItems
+        .filter(i => !i.isMaster && i.dateKey === selDate)
+        .sort((a, b) => parseTime(a.date) - parseTime(b.date))
     );
+  }, [allItems, selDate]);
+
+  const scheduleGroups = useMemo(() => {
+    if (!selDate) return {};
+
+    const filtered = allItems
+      .filter(i => !i.isMaster && i.dateKey === selDate && masterCodes.has(String(i.code)))
+      .sort((a, b) => parseTime(a.date) - parseTime(b.date));
+
+    return groupByTime(filtered);
+  }, [allItems, masterCodes, selDate]);
+
+  const sortedTimes = Object.keys(scheduleGroups).sort((a, b) => parseTime(a) - parseTime(b));
+
+  if (isLoading) {
+    return <div id="loading-overlay" style={{ display: 'flex' }}><div className="spinner-border text-primary" role="status"><span className="visually-hidden">Loading...</span></div></div>;
+  }
+
+  const getDisplayItem = (item: any) => {
+    if (!item.isMaster) {
+      const master = allItems.find(m => m.isMaster && (
+        String(m.code) === String(item.code) ||
+        (m.extra_codes && String(m.extra_codes).split(',').map(s => s.trim()).includes(String(item.code)))
+      ));
+      if (master) {
+        return {
+          ...item,
+          brand: master.brand || item.brand,
+          name: master.name || item.name,
+          image: master.image || item.image,
+          masterCode: master.code
+        };
+      }
+    }
+    return item;
+  };
+
+  const handleCardClick = (item: any) => {
+    const displayItem = getDisplayItem(item);
+    navigate(`/detail/${displayItem.masterCode || item.code}`);
+  };
+
+  // 보유 상품을 먼저, 펼친 경우 나머지 편성 상품을 뒤에 이어 붙인다
+  const getRenderItems = (time: string) => {
+    const owned = scheduleGroups[time] || [];
+    if (!expandedTimes.has(time)) return owned;
+
+    const ownedCodes = new Set(owned.map(i => String(i.code)));
+    const others = (fullScheduleGroups[time] || []).filter(i => !ownedCodes.has(String(i.code)));
+    return [...owned, ...others];
   };
 
   return (
     <section className="page-section active" id="page-schedule">
-      <div className="date-scroller">
+      <div id="dateScroller" className="date-scroller">
         {dates.map(d => {
-          const p = new Date(d);
+          const parsed = new Date(d);
+          const days = ['일', '월', '화', '수', '목', '금', '토'];
+          const dayName = isNaN(parsed.getDay()) ? '' : days[parsed.getDay()];
+          const dateNum = isNaN(parsed.getDate()) ? d : parsed.getDate();
+          
           return (
-            <button key={d} className={`date-btn ${d === date ? 'active' : ''}`}
-              onClick={() => { setSelDate(d); setExpanded(new Set()); }}>
-              {DAYS[p.getDay()]}<br />{p.getDate()}
+            <button 
+              key={d} 
+              className={`date-btn ${d === selDate ? 'active' : ''}`}
+              onClick={() => { setSelDate(d); setExpandedTimes(new Set()); }}
+            >
+              {dayName}<br />{dateNum}
             </button>
           );
         })}
       </div>
 
-      <div className="toolbar">
-        <div className="form-check form-switch">
-          <input className="form-check-input" type="checkbox" id="allSlots" checked={showAllSlots}
-            onChange={e => setShowAllSlots(e.target.checked)} />
-          <label className="form-check-label" htmlFor="allSlots">우리 상품 없는 방송도 보기</label>
-        </div>
-        <div className="updated-at">편성 수집 {scheduleUpdatedAt}</div>
-      </div>
+      <div id="scheduleContainer">
+        {sortedTimes.length === 0 ? (
+          <p style={{ padding: '20px' }}>해당 날짜에 편성된 일정이 없습니다.</p>
+        ) : (
+          sortedTimes.map(time => {
+            const isExpanded = expandedTimes.has(time);
 
-      {daySlots.length === 0 ? (
-        <p className="empty-msg">이 날짜에는 우리 상품(A/S 책임자 CJ ENM) 방송이 없어요.</p>
-      ) : daySlots.map(s => {
-        const key = `${s.date}|${s.start}|${s.channel}|${s.program}`;
-        const owned = s.items.filter(i => i.owned);
-        const isOpen = expanded.has(key) || owned.length === 0;
-        const list = isOpen ? [...owned, ...s.items.filter(i => !i.owned)] : owned;
-        return (
-          <div key={key}>
-            <div className="time-divider">
-              <span>{s.start}~{s.end} <span className="slot-sub">{s.channel} · {s.program}</span></span>
-              {owned.length > 0 && owned.length < s.items.length && (
-                <button type="button" className={`schedule-more-btn ${expanded.has(key) ? 'active' : ''}`}
-                  onClick={() => toggle(key)} title={expanded.has(key) ? '우리 상품만 보기' : `전체 상품 보기 (${s.items.length}개)`}>
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <rect x="3" y="3" width="7" height="7" rx="1.5" /><rect x="14" y="3" width="7" height="7" rx="1.5" />
-                    <rect x="3" y="14" width="7" height="7" rx="1.5" />
-                    {expanded.has(key) ? <path d="M14 17.5h7" /> : <path d="M14 17.5h7M17.5 14v7" />}
-                  </svg>
-                </button>
-              )}
-            </div>
-            <div className="product-grid">{list.map(card)}</div>
-          </div>
-        );
-      })}
+            return (
+              <div key={time}>
+                <div className="time-divider">
+                  <span>{time} 방송</span>
+                  <WeatherBadge weather={allWeather} date={selDate} time={time} />
+                  <button
+                    type="button"
+                    className={`schedule-more-btn ${isExpanded ? 'active' : ''}`}
+                    onClick={() => toggleTime(time)}
+                    title={isExpanded ? '보유 상품만 보기' : `전체내역 보기 (${(fullScheduleGroups[time] || []).length}개)`}
+                    aria-label={isExpanded ? '보유 상품만 보기' : '전체내역 보기'}
+                    aria-expanded={isExpanded}
+                  >
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <rect x="3" y="3" width="7" height="7" rx="1.5" />
+                      <rect x="14" y="3" width="7" height="7" rx="1.5" />
+                      <rect x="3" y="14" width="7" height="7" rx="1.5" />
+                      {isExpanded
+                        ? <path d="M14 17.5h7" />
+                        : <path d="M14 17.5h7M17.5 14v7" />}
+                    </svg>
+                  </button>
+                </div>
+                <div className="product-grid">
+                  {getRenderItems(time).map((rawItem: any) => {
+                    const isOwned = masterCodes.has(String(rawItem.code));
+                    const displayItem = isOwned ? getDisplayItem(rawItem) : rawItem;
+                    const targetCode = displayItem.masterCode || displayItem.code;
+                    const supplyObj = allSupplies?.find(s => String(s.code) === String(targetCode));
+                    const overlay = (supplyObj && supplyObj.text) ? <div className="supplies-overlay">{supplyObj.text}</div> : null;
+
+                    return (
+                      <div
+                        key={rawItem.code}
+                        className={`p-card ${isOwned ? 'is-owned' : 'is-unowned'}`}
+                        onClick={isOwned ? () => handleCardClick(rawItem) : undefined}
+                      >
+                        <div className="p-img-box">
+                          <img src={getProductImage(displayItem) || 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200"><rect width="200" height="200" fill="%23f8f9fa"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" font-family="sans-serif" font-size="14" fill="%23adb5bd">No Image</text></svg>'} className="p-img" alt={displayItem.name} />
+                          {overlay}
+                        </div>
+                        <div className="p-info">
+                          <div className="p-brand">{displayItem.brand || ''}</div>
+                          <div className="p-name">{displayItem.name || ''}</div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })
+        )}
+      </div>
     </section>
   );
 };

@@ -1,7 +1,8 @@
 name: Update CJ Data
 
 # CJ 편성표 + 상품 상세를 받아서 앱 데이터(frontend/public/*.json)를 갱신합니다.
-# 재고(inventory.json)는 새 상품만 추가하고 기존 수량은 건드리지 않습니다.
+# 초기 재고(seed_stock.json)는 새 상품·옵션만 추가하고 기존 수량은 건드리지 않습니다.
+# 앱에서 저장한 데이터(db/)는 건드리지 않습니다.
 on:
   schedule:
     # 한국시간 06:17, 11:17, 16:17, 21:17
@@ -44,8 +45,15 @@ jobs:
       - name: 앱 데이터 만들기 (재고 추가 + 편성 매칭)
         run: python scripts/build_app_data.py
 
-      - name: 커밋
-        uses: stefanzweifel/git-auto-commit-action@v5
-        with:
-          commit_message: "🤖 CJ 편성·재고 데이터 업데이트"
-          file_pattern: "data/*.csv frontend/public/*.json"
+      - name: 커밋 (앱이 그사이 저장한 db/ 변경을 먼저 받아온 뒤)
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/*.csv frontend/public/data.json frontend/public/seed_stock.json
+          if git diff --cached --quiet; then echo "변경 없음"; exit 0; fi
+          git commit -m "🤖 CJ 편성·재고 데이터 업데이트"
+          for i in 1 2 3 4 5; do
+            git pull --rebase origin main && git push origin HEAD:main && exit 0
+            sleep $((i * 5))
+          done
+          exit 1

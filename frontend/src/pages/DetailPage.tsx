@@ -1,91 +1,1125 @@
-import { useMemo } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
-import { useAppData, totalQty, sortSizes, NO_IMAGE, DAYS } from '../data';
+import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
+import { useAppStore } from '../store/useAppStore';
+import { getProductImage } from '../utils/helpers';
+import OutfitModal from '../components/modals/OutfitModal';
+import * as XLSX from 'xlsx';
+import html2canvas from 'html2canvas';
+import { BOX_ICONS, BOX_ICON_MIN, BOX_ICON_MAX } from '../utils/boxIcons';
+
+
+const isSameRental = (a: any, b: any) => {
+  if (!a || !b) return false;
+  if (a.id !== undefined && a.id !== null && b.id !== undefined && b.id !== null) {
+    return String(a.id) === String(b.id);
+  }
+  return String(a.code) === String(b.code) &&
+         String(a.renter || '') === String(b.renter || '') &&
+         String(a.color || '') === String(b.color || '') &&
+         String(a.size || '') === String(b.size || '') &&
+         String(a.date || '') === String(b.date || '');
+};
+
+// 박스 라벨 아이콘을 독립 SVG 문서(data URL)로 만든다
+const boxIconSrc = (idx: number, size: number) =>
+  'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 100 100">` +
+    `<g fill="none" stroke="#000" stroke-width="5" stroke-linejoin="round" stroke-linecap="round">${BOX_ICONS[idx][1]}</g></svg>`,
+  );
+
+// 박스 라벨 A4 가로 페이지 좌우 여백 (템플릿과 글자 맞춤 계산이 같이 쓴다)
+const BOX_PAD_X = 64;
 
 const DetailPage = () => {
-  const { code = '' } = useParams();
+  const { id = '' } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { loading, error, inventory, slots } = useAppData();
-  const item = inventory[code];
 
-  const { colors, sizes, grid } = useMemo(() => {
-    const opts = item?.options || [];
-    const colors = Array.from(new Set(opts.map(o => o.color)));
-    const sizes = sortSizes(Array.from(new Set(opts.map(o => o.size))));
-    const grid: Record<string, Record<string, number | undefined>> = {};
-    for (const o of opts) {
-      grid[o.color] = grid[o.color] || {};
-      grid[o.color][o.size] = (grid[o.color][o.size] || 0) + (o.qty || 0);
+  const {
+    allItems, allStockMap, allSupplies, allNotes,
+    allHistory, allOutfits,
+    saveToBackend,
+    setAllOutfits, setAllNotes, setAllSupplies,
+    apiClient, setIsLoading, isLoading,
+  } = useAppStore();
+
+
+  // ─── 상품 정보 ───────────────────────────────────────────────
+  const item = useMemo(() => {
+    let found = allItems.find(i => String(i.code) === String(id));
+    if (!found) {
+      found = allItems.find(i => 
+        i.isMaster && i.extra_codes && 
+        String(i.extra_codes).split(',').map(s => s.trim()).includes(String(id))
+      );
     }
-    return { colors, sizes, grid };
+    if (!found) return null;
+    if (!found.isMaster) {
+      const master = allItems.find(m => m.isMaster && (
+        String(m.code) === String(found.code) ||
+        (m.extra_codes && String(m.extra_codes).split(',').map(s => s.trim()).includes(String(found.code)))
+      ));
+      if (master) return { ...found, brand: master.brand || found.brand, name: master.name || found.name, image: master.image || found.image, extra_codes: master.extra_codes };
+    }
+    return found;
+  }, [allItems, id]);
+
+  const targetCode = item?.code || id;
+
+  const stockMap = useMemo(() => allStockMap[targetCode] || [], [allStockMap, targetCode]);
+
+  // 재고 입력 순서 = inventory_history에 사이즈가 처음 등장한 순서.
+  // 한 번에 저장된 묶음은 date가 전부 같으므로 AUTOINCREMENT id로 실제 삽입 순서를 가른다.
+  // (등록 화면이 colors -> sizes 순으로 로그를 쌓으므로 id 순서 = 입력한 사이즈 순서)
+  const stockEntryOrder = useMemo(() => {
+    const logs = [...(allHistory || [])]
+      .filter((l: any) => String(l.code) === String(targetCode))
+      .sort((a: any, b: any) => {
+        const d = (new Date(a.date) as any) - (new Date(b.date) as any);
+        return d !== 0 ? d : Number(a.id || 0) - Number(b.id || 0);
+      });
+    const out: string[] = [];
+    logs.forEach((l: any) => {
+      const s = String(l.size || '').trim();
+      if (s && !out.includes(s)) out.push(s);
+    });
+    return out;
+  }, [allHistory, targetCode]);
+
+  // 사이즈 열 순서는 마스터 등록 시 입력한 순서(products.sizes)를 따른다.
+  // stockMap은 백엔드가 GROUP BY 결과를 그대로 준 것이라 사이즈가 사전순으로
+  // 섞여 나오므로(M, M+5, S, S+5), 그걸 그대로 쓰면 입력 순서가 사라진다.
+  const { sizes, colors } = useMemo(() => {
+    // backfill_history.js가 이관 때 color/size가 빈 행을 '-'로 채워 넣은 탓에
+    // 수량이 전부 0인 '-' 행/열이 표에 유령처럼 남는다. 라벨이 비었거나 '-'이면서
+    // 수량 합이 0인 것만 숨긴다 — 수량이 있으면 재고를 감추게 되므로 그대로 둔다.
+    const isGhost = (key: 'size' | 'color', v: string) =>
+      (!v || v.trim() === '' || v.trim() === '-') &&
+      stockMap
+        .filter((x: any) => x[key] === v)
+        .reduce((a: number, b: any) => a + Number(b.qty || 0), 0) === 0;
+
+    const stockSizes: string[] = [], cList: string[] = [];
+    stockMap.forEach((s: any) => {
+      if (s.size && !stockSizes.includes(s.size) && !isGhost('size', s.size)) stockSizes.push(s.size);
+      if (s.color && !cList.includes(s.color) && !isGhost('color', s.color)) cList.push(s.color);
+    });
+
+    // 마스터 순서를 먼저 깔고, 마스터에 없는(나중에 추가된) 사이즈만 뒤에 붙인다.
+    // 마스터가 비었거나 재고 사이즈를 못 담고 있으면 자연히 기존 동작으로 폴백된다.
+    const masterSizes = (item?.sizes ? String(item.sizes).split(',') : [])
+      .map((s: string) => s.trim())
+      .filter(Boolean);
+    const ordered = masterSizes.filter((s: string) => stockSizes.includes(s));
+
+    // 마스터가 비었거나 깨져 있으면(=매칭되는 사이즈가 없으면) 전부 여기로 떨어진다.
+    // 그때는 백엔드 GROUP BY 사전순 대신 재고 입력 순서를 쓴다.
+    // 이력에도 없는 사이즈는 sort가 안정 정렬이라 기존 순서 그대로 뒤에 남는다.
+    const rest = stockSizes
+      .filter(s => !ordered.includes(s))
+      .sort((a, b) => {
+        const ia = stockEntryOrder.indexOf(a), ib = stockEntryOrder.indexOf(b);
+        if (ia === ib) return 0;
+        if (ia === -1) return 1;
+        if (ib === -1) return -1;
+        return ia - ib;
+      });
+
+    return { sizes: [...ordered, ...rest], colors: cList };
+  }, [stockMap, item, stockEntryOrder]);
+
+  // 매트릭스 왼쪽 상단에 표시할 현재 재고 총수량
+  const totalQty = useMemo(() => stockMap.reduce((a: number, b: any) => a + Number(b.qty || 0), 0), [stockMap]);
+
+  // ─── 컬러별 이미지 파싱 ──────────────────────────────────────
+  const colorImages = useMemo(() => {
+    if (!item?.image) return {};
+    try { return JSON.parse(item.image); } catch { return {}; }
   }, [item]);
 
-  const broadcasts = useMemo(
-    () => slots.filter(s => s.items.some(i => i.code === code)),
-    [slots, code],
+  const toThumb = (url: string) => {
+    return url;
+  };
+
+  // ─── 관련 데이터 ─────────────────────────────────────────────
+  const supplyObj  = useMemo(() => allSupplies?.find(s => String(s.code) === String(targetCode)), [allSupplies, targetCode]);
+  const noteObj    = useMemo(() => allNotes?.find(n => String(n.code) === String(targetCode)),    [allNotes,    targetCode]);
+  const itemOutfits = useMemo(() => allOutfits?.filter(o => String(o.code) === String(targetCode)) || [], [allOutfits, targetCode]);
+
+  // "미반납 대여" 목록 = RENT 로그 중, 자신을 ref_id로 가리키는 RETURN 로그가 아직 없는 것들.
+  // 별도 rentals 테이블 없이 inventory_history만으로 파생 (재고 합계와 절대 어긋날 수 없음).
+  const itemRentals = useMemo(() => {
+    const logs = (allHistory || []).filter(h => String(h.code) === String(targetCode) && (h.type === 'RENT' || h.type === 'RETURN'));
+    const closedRentIds = new Set(
+      logs.filter(h => h.type === 'RETURN' && h.ref_id !== undefined && h.ref_id !== null).map(h => String(h.ref_id))
+    );
+    return logs
+      .filter(h => h.type === 'RENT' && !closedRentIds.has(String(h.id)))
+      .map(h => ({ id: h.id, code: h.code, renter: h.actor, color: h.color, size: h.size, qty: Math.abs(Number(h.qty)), date: h.date }))
+      .sort((a, b) => (new Date(a.date) as any) - (new Date(b.date) as any));
+  }, [allHistory, targetCode]);
+
+  // ─── Local state ─────────────────────────────────────────────
+  const [supplyText, setSupplyText] = useState('');
+  const [noteText,   setNoteText]   = useState('');
+  useEffect(() => setSupplyText(supplyObj?.text || ''), [supplyObj]);
+  useEffect(() => setNoteText(noteObj?.text || ''),     [noteObj]);
+
+  const [isMobile, setIsMobile] = useState(false);
+  const [isCapturing, setIsCapturing] = useState(false);
+  const [captureImgUrl, setCaptureImgUrl] = useState('');
+  const captureRef = useRef<HTMLDivElement>(null);
+
+  // 반출 상품 표지 (A4, 박스 동봉용)
+  const [isCoverCapturing, setIsCoverCapturing] = useState(false);
+  const coverRef = useRef<HTMLDivElement>(null);
+  // 반출 박스 라벨 (A4 가로, 상품명 + 총수량만)
+  const [isBoxCapturing, setIsBoxCapturing] = useState(false);
+  const boxRef = useRef<HTMLDivElement>(null);
+  // 오른쪽 위 아이콘: 누를 때마다 종류와 크기를 랜덤으로 다시 뽑는다
+  const [boxIcon, setBoxIcon] = useState({ idx: 0, size: 130 });
+  // 카테고리는 마스터 상품에만 들어 있으므로(편성표 항목은 빈 값) 마스터에서 찾는다.
+  const isReleaseItem = useMemo(() => {
+    const master = allItems.find(m => m.isMaster && String(m.code) === String(targetCode));
+    return (master?.category || item?.category) === '반출';
+  }, [allItems, targetCode, item]);
+
+  useEffect(() => {
+    const handleResize = () => {
+      setIsMobile(window.innerWidth <= 768);
+    };
+    handleResize();
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  const handleCapturePage = async () => {
+    try {
+      setIsCapturing(true);
+      
+      // 외부 URL 이미지의 경우 브라우저 보안(CORS)으로 인한 캡쳐 캔버스 오염(Taint)을 방지하기 위해 프록시를 거쳐 Base64로 전환
+      let resolvedImgUrl = mainImgUrl;
+      if (mainImgUrl && mainImgUrl.startsWith('http') && 
+          !mainImgUrl.includes('raw.githubusercontent.com') && 
+          !mainImgUrl.includes('localhost') && 
+          !mainImgUrl.includes('127.0.0.1')) {
+        try {
+          console.log('[캡쳐] 외부 이미지 감지 → 프록시 변환 시도:', mainImgUrl);
+          const res = await apiClient.post('', { type: 'proxy_image', data: { imageUrl: mainImgUrl } });
+          if (res.data && res.data.success) {
+            resolvedImgUrl = res.data.base64;
+            console.log('[캡쳐] 프록시 변환 성공!');
+          }
+        } catch (e) {
+          console.warn('[캡쳐] 외부 이미지 프록시 변환 실패 (원본 사용):', e);
+        }
+      }
+
+      setCaptureImgUrl(resolvedImgUrl);
+      
+      // 상태 변경 및 이미지 렌더링 동기화를 위해 대기
+      await new Promise(r => setTimeout(r, 300));
+      
+      if (!captureRef.current) {
+        throw new Error('캡쳐 영역(DOM)을 찾을 수 없습니다.');
+      }
+
+      const canvas = await html2canvas(captureRef.current, {
+        useCORS: true,
+        allowTaint: false,
+        logging: false,
+        backgroundColor: '#ffffff',
+        scale: 2
+      });
+
+      // 캔버스를 블롭으로 변환하여 클립보드에 복사 시도
+      await new Promise<void>((resolve, reject) => {
+        canvas.toBlob(async (blob) => {
+          if (!blob) {
+            reject(new Error('Canvas 블롭 변환 실패'));
+            return;
+          }
+          try {
+            await navigator.clipboard.write([
+              new ClipboardItem({
+                [blob.type]: blob
+              })
+            ]);
+            alert('이미지가 클립보드에 복사되었습니다! 카카오톡 등 대화창에 바로 붙여넣기(Ctrl+V) 하실 수 있습니다.');
+            resolve();
+          } catch (clipErr) {
+            console.warn('클립보드 복사 실패, 파일 다운로드로 대체합니다:', clipErr);
+            // 클립보드 미지원 환경의 경우 파일 다운로드로 폴백
+            const dataUrl = canvas.toDataURL('image/png');
+            const link = document.createElement('a');
+            link.download = `cjpb_capture_${id}.png`;
+            link.href = dataUrl;
+            link.click();
+            alert('클립보드 복사 권한이 없거나 지원되지 않아 캡쳐본이 파일로 자동 다운로드되었습니다.');
+            resolve();
+          }
+        }, 'image/png');
+      });
+    } catch (err: any) {
+      console.error('Capture failed:', err);
+      alert('화면 캡쳐 중 오류가 발생했습니다: ' + (err.message || err));
+    } finally {
+      setCaptureImgUrl('');
+      setIsCapturing(false);
+    }
+  };
+
+  // 화면 밖 A4 템플릿을 PNG로 만들어 클립보드에 복사 (실패하면 파일로 다운로드). 반출 표지·박스 라벨 공용.
+  const captureA4ToClipboard = async (
+    el: HTMLDivElement | null, label: string, fileName: string, setBusy: (v: boolean) => void,
+    prepare?: (el: HTMLDivElement) => void,
+  ) => {
+    try {
+      setBusy(true);
+      // Pretendard가 다 로드된 뒤에 그려야 폰트가 기본체로 바뀌지 않는다.
+      if (document.fonts?.ready) await document.fonts.ready;
+      await new Promise(r => setTimeout(r, 100));
+      if (!el) throw new Error(`${label} 영역(DOM)을 찾을 수 없습니다.`);
+      // 템플릿 안 이미지(박스 아이콘 등)가 다 그려진 뒤에 캡처한다
+      await Promise.all(Array.from(el.querySelectorAll('img')).map(img => img.decode().catch(() => undefined)));
+      prepare?.(el);
+
+      const canvas = await html2canvas(el, {
+        useCORS: true,
+        allowTaint: false,
+        logging: false,
+        backgroundColor: '#ffffff',
+        scale: 3, // 1123x794 → 약 3369x2382px (A4 가로), 인쇄해도 선명하게
+      });
+
+      const blob: Blob | null = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+      if (!blob) throw new Error('Canvas 블롭 변환 실패');
+
+      try {
+        await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+        alert(`${label} 이미지가 클립보드에 복사되었습니다! 붙여넣기(Ctrl+V) 해서 인쇄하세요.`);
+      } catch (clipErr) {
+        console.warn('클립보드 복사 실패, 파일 다운로드로 대체합니다:', clipErr);
+        const link = document.createElement('a');
+        link.download = fileName;
+        link.href = canvas.toDataURL('image/png');
+        link.click();
+        alert(`클립보드 복사 권한이 없거나 지원되지 않아 ${label}가 파일로 자동 다운로드되었습니다.`);
+      }
+    } catch (err: any) {
+      console.error(`${label} capture failed:`, err);
+      alert(`${label} 생성 중 오류가 발생했습니다: ` + (err.message || err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleCaptureCover = () => captureA4ToClipboard(coverRef.current, '표지', `cjpb_cover_${id}.png`, setIsCoverCapturing);
+  // 박스 라벨 글자 크기는 실제 폰트로 재서 정한다 (글자 폭 추정보다 정확하고, 넘치지 않는다).
+  const fitBoxLabel = (root: HTMLDivElement) => {
+    const q = (k: string) => root.querySelector<HTMLElement>(`[data-fit="${k}"]`);
+    const code = q('code'), name = q('name'), qty = q('qty');
+    if (!code || !name || !qty) return;
+    const cw = root.clientWidth - BOX_PAD_X * 2;
+    // 상품코드 줄은 오른쪽 위 아이콘과 겹치지 않게 아이콘 폭만큼 비워 둔다
+    const iconSize = Number(root.querySelector<HTMLElement>('[data-box-icon]')?.dataset.boxIcon || 0);
+    const codeW = cw - (iconSize ? iconSize + 24 : 0);
+
+    // 한 줄에 꼭 맞는 크기: 100px로 잰 폭의 비율로 정한다
+    const fitOneLine = (el: HTMLElement, max: number, width: number) => {
+      el.style.fontSize = '100px';
+      const size = Math.floor(Math.min(max, (100 * width) / el.scrollWidth));
+      el.style.fontSize = `${size}px`;
+    };
+    fitOneLine(code, 150, codeW);
+    fitOneLine(qty, 120, cw);
+
+    // 상품명: 한 줄로 64px 이상이면 한 줄, 아니면 두 줄까지 허용해서 키운다 (최대 96px)
+    name.style.whiteSpace = 'nowrap';
+    name.style.width = 'max-content';
+    name.style.fontSize = '100px';
+    const one = Math.floor((100 * cw) / name.scrollWidth);
+    if (one >= 64) {
+      name.style.fontSize = `${Math.min(96, one)}px`;
+      return;
+    }
+    name.style.whiteSpace = 'normal';
+    name.style.width = 'auto';
+    let size = Math.min(96, one * 2);
+    for (; size > 24; size--) {
+      name.style.fontSize = `${size}px`;
+      if (name.scrollHeight <= size * 1.18 * 2 + 2) break;
+    }
+  };
+  const handleCaptureBox = () => {
+    setBoxIcon({
+      idx: Math.floor(Math.random() * BOX_ICONS.length),
+      size: BOX_ICON_MIN + Math.floor(Math.random() * (BOX_ICON_MAX - BOX_ICON_MIN + 1)),
+    });
+    // 바뀐 아이콘이 그려진 뒤(캡처 함수가 폰트 로딩 + 100ms를 기다린다)에 캡처된다
+    return captureA4ToClipboard(boxRef.current, '박스 라벨', `cjpb_box_${id}.png`, setIsBoxCapturing, fitBoxLabel);
+  };
+
+  // 대여 바구니
+  const [cart,    setCart]    = useState<any[]>([]);
+  const [renter,  setRenter]  = useState('');
+  // 대여 반납 체크박스
+  const [checked, setChecked] = useState<any[]>([]);
+  // 재고 수정 모드
+  const [editMode, setEditMode]     = useState(false);
+  const [stockEdits, setStockEdits] = useState<Record<string, string>>({});
+  const [newSizeName, setNewSizeName] = useState('');
+  // 착장 모달
+  const [outfitOpen, setOutfitOpen] = useState(false);
+  // 커스텀 확인 모달 상태
+  const [confirmModal, setConfirmModal] = useState<{
+    isOpen: boolean;
+    message: string;
+    onConfirm: (() => Promise<void>) | null;
+  }>({
+    isOpen: false,
+    message: '',
+    onConfirm: null
+  });
+  // 선택된 컬러 이미지 (메인 교체용)
+  const [activeImg, setActiveImg] = useState(null);
+
+  // ─── 재고 숫자 클릭 → 바구니 ─────────────────────────────────
+  const addToCart = useCallback((color: string, size: string) => {
+    setCart(prev => {
+      const ex = prev.find(x => x.color === color && x.size === size);
+      if (ex) return prev.map(x => x.color === color && x.size === size ? { ...x, qty: x.qty + 1 } : x);
+      return [...prev, { color, size, qty: 1 }];
+    });
+  }, []);
+
+  // ─── 저장 함수들 ─────────────────────────────────────────────
+  const handleSaveNote = async () => {
+    const newNotes = [...(allNotes || [])];
+    const idx = newNotes.findIndex(n => String(n.code) === String(targetCode));
+    if (idx > -1) { if (noteText) newNotes[idx] = { ...newNotes[idx], text: noteText }; else newNotes.splice(idx, 1); }
+    else if (noteText) newNotes.push({ code: String(targetCode), text: noteText });
+    setAllNotes(newNotes);
+    await saveToBackend('notes.json', newNotes, targetCode);
+    alert('특이사항이 저장되었습니다.');
+  };
+
+  const handleSaveSupply = async () => {
+    const newSup = [...(allSupplies || [])];
+    const idx = newSup.findIndex(s => String(s.code) === String(targetCode));
+    if (idx > -1) { if (supplyText) newSup[idx] = { ...newSup[idx], text: supplyText }; else newSup.splice(idx, 1); }
+    else if (supplyText) newSup.push({ code: String(targetCode), text: supplyText });
+    setAllSupplies(newSup);
+    await saveToBackend('supplies.json', newSup, targetCode);
+    alert('준비물이 저장되었습니다.');
+  };
+
+  const handleDeleteOutfit = (host: string) => {
+    setConfirmModal({
+      isOpen: true,
+      message: `${host} 님의 착장 정보를 삭제하시겠습니까?`,
+      onConfirm: async () => {
+        const next = (allOutfits || []).filter(o => !(String(o.code) === String(targetCode) && o.host === host));
+        setAllOutfits(next);
+        await saveToBackend('outfits.json', next, targetCode);
+      }
+    });
+  };
+
+  // 대여 삭제(오등록 취소): "반납"과 동일하게 RETURN 로그로 마감 처리한다. history를 실제로
+  // 지우진 않지만(감사기록 보존), ref_id로 연결된 RETURN이 생기는 순간 itemRentals(미반납 목록)에서
+  // 사라지고 재고 합계도 정상적으로 복구된다.
+  const handleDeleteRental = (r: any) => {
+    setConfirmModal({
+      isOpen: true,
+      message: `${r.renter} 님의 대여 내역 (${r.color} / ${r.size})을 삭제하시겠습니까?`,
+      onConfirm: async () => {
+        try {
+          const timestamp = new Date().toISOString();
+          await useAppStore.getState().saveHistoryToBackend([{
+            code: r.code, color: r.color, size: r.size,
+            type: 'RETURN', qty: Number(r.qty || 1), date: timestamp,
+            actor: r.renter, note: '대여 취소/삭제', ref_id: r.id
+          }]);
+        } catch (err) {
+          console.error(err);
+          alert('삭제 처리 중 오류가 발생했습니다.');
+        }
+      }
+    });
+  };
+
+  const handleReturnRentals = (e?: React.FormEvent) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    setConfirmModal({
+      isOpen: true,
+      message: `선택한 ${checked.length}개의 대여 항목을 반납 처리하시겠습니까?`,
+      onConfirm: async () => {
+        try {
+          const timestamp = new Date().toISOString();
+          const newLogs = checked.map((r: any) => ({
+            code: r.code, color: r.color, size: r.size,
+            type: 'RETURN', qty: Number(r.qty || 1), date: timestamp,
+            actor: r.renter, note: '대여 반납', ref_id: r.id
+          }));
+          await useAppStore.getState().saveHistoryToBackend(newLogs);
+          setChecked([]);
+        } catch (err) {
+          console.error(err);
+          alert('반납 처리 중 오류가 발생했습니다.');
+        }
+      }
+    });
+  };
+
+  const handleSubmitRental = async () => {
+    if (!renter.trim()) { alert('대여자 성함을 입력해주세요.'); return; }
+    if (cart.length === 0) return;
+    try {
+      const timestamp = new Date().toISOString();
+      const newLogs = cart.map((c: any) => ({
+        code: String(targetCode), color: c.color, size: c.size,
+        type: 'RENT', qty: -Number(c.qty || 1), date: timestamp,
+        actor: renter.trim(), note: '방송 대여(반출)'
+      }));
+
+      await useAppStore.getState().saveHistoryToBackend(newLogs);
+      setCart([]);
+      setRenter('');
+      alert('대여 등록이 완료되었습니다.');
+    } catch (err: any) {
+      console.error(err);
+      alert('대여 등록 중 오류가 발생했습니다: ' + err.message);
+    }
+  };
+
+  const handleAddOutfits = async (entries: any[]) => {
+    const next = [...(allOutfits || [])];
+    entries.forEach(({ host, size }) => { if (host && size) next.push({ code: String(targetCode), host, size }); });
+    setAllOutfits(next); await saveToBackend('outfits.json', next, targetCode);
+  };
+
+
+  const handleSubmitStock = async () => {
+    const matrix: any[] = [];
+    Object.entries(stockEdits).forEach(([key, qty]) => {
+      const [color, size] = key.split('||');
+      const actualSize = size === '__new__' ? newSizeName : size;
+      if (qty && actualSize) matrix.push({ color, size: actualSize, qty: Number(qty) });
+    });
+    if (matrix.length === 0) { alert('입력된 수량이 없습니다.'); return; }
+    setIsLoading(true);
+    try {
+      const newLogs: any[] = [];
+      const timestamp = new Date().toISOString();
+
+      matrix.forEach(m => {
+        newLogs.push({
+          code: String(targetCode), color: m.color, size: m.size,
+          type: 'ADJUST', qty: Number(m.qty), date: timestamp,
+          actor: '관리자', note: '재고 추가/조정 (수기입력)'
+        });
+      });
+
+      // Inventory is derived from inventory_history — only append the delta events below.
+      // (Never write a full stock snapshot: that previously overwrote every other
+      // product's inventory with this tab's possibly-stale local state.)
+      // saveHistoryToBackend가 저장한 qty를 allStockMap에 합산하므로 여기서 직접 갱신하지 않는다.
+      if (newLogs.length > 0) {
+        await useAppStore.getState().saveHistoryToBackend(newLogs);
+      }
+      
+      alert('입고 저장이 완료되었습니다.');
+      setEditMode(false); setStockEdits({}); setNewSizeName('');
+    } catch (e) { alert('오류가 발생했습니다.'); }
+    finally { setIsLoading(false); }
+  };
+
+  const handleDownloadExcel = () => {
+    if (stockMap.length === 0) { alert('재고 데이터가 없습니다.'); return; }
+    const colorOrder: string[] = [];
+    stockMap.forEach(s => { if (s.color && !colorOrder.includes(s.color)) colorOrder.push(s.color); });
+    // stockMap 수량(s.qty)은 이미 inventory_history SUM으로 대여(RENT) 반출분이 반영된 값이므로
+    // 여기서 itemRentals를 또 빼면 대여 수량만큼 이중차감된다.
+    const data = stockMap.filter(s => s.color && s.size).map(s => {
+      return { '상품코드': targetCode, '상품명': item ? `${item.brand} ${item.name}` : targetCode, '색상': s.color, '사이즈': s.size, '현재재고': Number(s.qty) };
+    }).sort((a, b) => colorOrder.indexOf(a['색상']) - colorOrder.indexOf(b['색상']));
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.json_to_sheet(data);
+    XLSX.utils.book_append_sheet(wb, ws, '재고현황');
+    XLSX.writeFile(wb, `[${item?.brand}] ${item?.name}(${targetCode}).xlsx`);
+  };
+
+  // ─── 메인 이미지 URL ─────────────────────────────────────────
+  const mainImgUrl = activeImg || getProductImage(item) || '';
+
+  if (isLoading) {
+    return (
+      <div id="loading-overlay" style={{ display: 'flex', flexDirection: 'column' }}>
+        <div className="spinner"></div>
+        <div className="mt-2 fw-bold small">CJ PB 데이터 동기화</div>
+      </div>
+    );
+  }
+
+  if (!item) return (
+    <section className="page-section active">
+      <div style={{ padding: '20px' }}>
+        <button className="m-btn m-btn-cancel" style={{ width: 'auto', padding: '8px 16px', fontSize: '14px' }} onClick={() => navigate(-1)}>← 뒤로</button>
+        <p style={{ marginTop: '16px', color: '#999' }}>상품 정보를 불러오는 중...</p>
+      </div>
+    </section>
   );
-  const info = broadcasts.flatMap(s => s.items).find(i => i.code === code);
-
-  if (loading) return <div id="loading-overlay" style={{ display: 'flex' }}><div className="spinner"></div></div>;
-  if (error) return <p className="empty-msg">데이터를 불러오지 못했어요: {error}</p>;
-  if (!item) return <p className="empty-msg">재고에 없는 상품이에요 ({code}). <a href="#" onClick={e => { e.preventDefault(); navigate(-1); }}>돌아가기</a></p>;
-
-  const colTotal = (s: string) => colors.reduce((t, c) => t + (grid[c][s] || 0), 0);
-  const rowTotal = (c: string) => sizes.reduce((t, s) => t + (grid[c][s] || 0), 0);
 
   return (
-    <section className="page-section active" id="page-detail" style={{ paddingBottom: 30 }}>
-      <button className="btn btn-sm btn-light mb-2" onClick={() => navigate(-1)}>← 뒤로</button>
-      <div className="detail-head">
-        <img src={item.image || NO_IMAGE} onError={e => { (e.target as HTMLImageElement).src = NO_IMAGE; }} alt={item.name} />
+    <section id="page-detail" className="page-section active">
+      <div className="dash-layout">
+
+        {/* ============================================================
+            LEFT: 이미지 + 특이사항
+        ============================================================ */}
+        <div className="dash-left">
+          {/* 뒤로 가기 */}
+          <button
+            onClick={() => navigate(-1)}
+            style={{ background: 'none', border: 'none', color: 'var(--primary)', fontWeight: '800', fontSize: '13px', cursor: 'pointer', marginBottom: '8px', padding: '0' }}
+          >
+            ← 뒤로
+          </button>
+
+          <div className="integrated-section">
+            {/* 상품명 + 코드 + 버튼 */}
+            <div className="img-header-overlay">
+              <h1 className="det-product-name" id="det-name">{item.brand} {item.name}</h1>
+              <div className="det-sub-info" style={{ flexWrap: 'wrap', gap: '6px' }}>
+                <span id="det-code" className="badge-item badge-code">{item.code}</span>
+                {item.extra_codes && String(item.extra_codes).split(',').map((s: string) => s.trim()).filter(Boolean).map((c: string) => (
+                  <span key={c} className="badge-item" style={{ background: '#e0f2fe', color: '#0369a1', border: '1px solid #bae6fd' }}>
+                    연계: {c}
+                  </span>
+                ))}
+                <span id="det-loc" className="badge-item badge-loc">{item.location || '-'}</span>
+                <button className="btn-excel" onClick={handleDownloadExcel}>
+                  <span className="material-icons-round" style={{ fontSize: '14px' }}>description</span>
+                  Excel
+                </button>
+                {isMobile && (
+                  <button className="btn-capture" onClick={handleCapturePage} disabled={isCapturing}>
+                    <span className="material-icons-round" style={{ fontSize: '14px' }}>photo_camera</span>
+                    {isCapturing ? '캡쳐 중...' : '캡쳐'}
+                  </button>
+                )}
+                {isReleaseItem && (
+                  <button className="btn-capture" onClick={handleCaptureCover} disabled={isCoverCapturing}>
+                    <span className="material-icons-round" style={{ fontSize: '14px' }}>article</span>
+                    {isCoverCapturing ? '생성 중...' : '표지'}
+                  </button>
+                )}
+                {isReleaseItem && (
+                  <button className="btn-capture" onClick={handleCaptureBox} disabled={isBoxCapturing}>
+                    <span className="material-icons-round" style={{ fontSize: '14px' }}>inventory_2</span>
+                    {isBoxCapturing ? '생성 중...' : '박스'}
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* 메인 이미지 */}
+            <div className="img-container">
+              <img
+                id="det-img"
+                src={mainImgUrl || 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="400" height="400" viewBox="0 0 400 400"><rect width="400" height="400" fill="%23f8f9fa"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" font-family="sans-serif" font-size="16" fill="%23adb5bd">이미지 없음</text></svg>'}
+                alt="상품이미지"
+                className="det-main-img"
+                onClick={() => window.open(`https://item.cjonstyle.com/item/${item.code}`, '_blank')}
+              />
+            </div>
+          </div>
+
+          {/* 특이사항 */}
+          <div className="notes-section">
+            <div className="notes-title">
+              상품 특이사항
+              <button className="notes-save-btn" onClick={handleSaveNote}>저장하기</button>
+            </div>
+            <textarea
+              id="det-notes"
+              className="notes-area"
+              placeholder="상품에 대한 특이사항 입력"
+              spellCheck={false}
+              value={noteText}
+              onChange={e => setNoteText(e.target.value)}
+            />
+          </div>
+        </div>
+
+        {/* ============================================================
+            RIGHT: 재고 / 착장 / 대여 / 준비물 / 바구니
+        ============================================================ */}
+        <div className="dash-right">
+
+          {/* 실시간 재고 현황 */}
+          <div className="dash-card" id="stock-card">
+            <div className="dash-title-row">
+              <span className="dash-title" id="stock-card-title" style={{ color: editMode ? 'var(--primary)' : '' }}>
+                {editMode ? '신규 재고 등록 모드' : '실시간 재고 현황'}
+              </span>
+              <button
+                className="btn-plus"
+                id="stock-toggle-btn"
+                style={{ background: editMode ? '#999' : '' }}
+                onClick={() => { setEditMode(e => !e); setStockEdits({}); setNewSizeName(''); }}
+              >
+                {editMode ? '×' : '+'}
+              </button>
+            </div>
+
+            {/* ── 보기 모드 ── */}
+            {!editMode && (
+              <div id="v-stock-table" className="compact-table">
+                {colors.length === 0
+                  ? <p style={{ color: '#999', textAlign: 'center', padding: '20px 0', fontSize: '13px' }}>등록된 재고가 없습니다.</p>
+                  : (
+                    <table className="st-table">
+                      <thead>
+                        <tr>
+                          <th style={{ color: '#dc2626', fontWeight: 900 }} title="현재 재고 총수량">{totalQty}</th>
+                          {sizes.map(s => <th key={s}>{s}</th>)}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {colors.map(c => (
+                          <tr key={c}>
+                            <td className="bg-light fw-bold">{c}</td>
+                            {sizes.map(s => {
+                              // base는 이미 inventory_history SUM으로 대여(RENT) 반출분이 반영된 값이라
+                              // 여기서 itemRentals를 또 빼면 이중차감된다 (base 자체가 가용재고).
+                              const base = stockMap.filter(x => x.color === c && x.size === s).reduce((a, b) => a + Number(b.qty), 0);
+                              const qty  = base;
+                              return (
+                                <td key={s}
+                                  onClick={() => addToCart(c, s)}
+                                  style={{ cursor: 'pointer', color: qty > 0 ? 'var(--primary) !important' : undefined, opacity: qty > 0 ? 1 : 0.3 }}
+                                >
+                                  {qty}
+                                </td>
+                              );
+                            })}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )
+                }
+              </div>
+            )}
+
+            {/* ── 편집 모드 ── */}
+            {editMode && (
+              <>
+                <div className="compact-table" style={{ overflowX: 'auto' }}>
+                  <table className="st-table" style={{ tableLayout: 'fixed' }}>
+                    <thead>
+                      <tr>
+                        <th style={{ width: '70px' }}>색상</th>
+                        {sizes.map(s => <th key={s}>{s}</th>)}
+                        <th style={{ background: '#fff3f8', border: '1px solid #ffccd5', width: '80px' }}>
+                          <input type="text" placeholder="+사이즈" value={newSizeName} onChange={e => setNewSizeName(e.target.value)}
+                            style={{ width: '100%', fontSize: '10px', border: 'none', outline: 'none', background: 'transparent', textAlign: 'center', fontWeight: '800' }} />
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {colors.map(c => (
+                        <tr key={c}>
+                          <td className="bg-light fw-bold" style={{ fontSize: '11px' }}>{c}</td>
+                          {sizes.map(s => (
+                            <td key={s} style={{ padding: 0 }}>
+                              <input type="number" className="matrix-input"
+                                value={stockEdits[`${c}||${s}`] || ''}
+                                onChange={e => setStockEdits(p => ({ ...p, [`${c}||${s}`]: e.target.value }))}
+                                style={{ width: '100%', height: '32px', border: 'none', textAlign: 'center', outline: 'none', fontSize: '13px', fontWeight: '800', color: 'var(--primary)' }} />
+                            </td>
+                          ))}
+                          <td style={{ background: '#fff9fb', padding: 0 }}>
+                            <input type="number" className="matrix-input"
+                              value={stockEdits[`${c}||__new__`] || ''}
+                              onChange={e => setStockEdits(p => ({ ...p, [`${c}||__new__`]: e.target.value }))}
+                              style={{ width: '100%', height: '32px', border: 'none', textAlign: 'center', outline: 'none', background: 'transparent', fontSize: '13px' }} />
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <div id="stock-edit-actions" style={{ display: 'flex', marginTop: '10px', gap: '8px' }}>
+                  <button className="m-btn m-btn-cancel" style={{ fontSize: '12px', padding: '8px' }}
+                    onClick={() => { setEditMode(false); setStockEdits({}); }}>취소</button>
+                  <button className="m-btn m-btn-confirm" style={{ fontSize: '12px', padding: '8px' }}
+                    onClick={handleSubmitStock}>입고 저장</button>
+                </div>
+              </>
+            )}
+          </div>
+
+          {/* 착장 정보 */}
+          <div className="dash-card">
+            <div className="dash-title-row">
+              <span className="dash-title">착장 정보</span>
+              <button className="btn-plus" onClick={() => setOutfitOpen(true)}>+</button>
+            </div>
+            <div id="v-outfit-container" className="info-card-grid">
+              {itemOutfits.length === 0
+                ? <div style={{ gridColumn: '1/-1', textAlign: 'center', color: '#aaa', fontSize: '13px', padding: '8px 0' }}>내역 없음</div>
+                : itemOutfits.map(o => (
+                  <div key={`${o.host}-${o.size}`} className="info-item-card">
+                    <button className="delete-btn" onClick={() => handleDeleteOutfit(o.host)}>×</button>
+                    <span className="info-card-top">{o.host}</span>
+                    <span className="info-card-bottom">{o.size}</span>
+                  </div>
+                ))
+              }
+            </div>
+          </div>
+
+          {/* 실시간 대여 현황 */}
+          <div className="dash-card">
+            <div className="dash-title-row" id="rental-btn-container">
+              {checked.length > 0
+                ? <button type="button" className="btn btn-primary btn-sm fw-bold px-3 py-1" onClick={e => handleReturnRentals(e)}>반납하기</button>
+                : <span className="dash-title">실시간 대여 현황</span>
+              }
+            </div>
+            <div id="v-rental-list">
+              <table className="list-table">
+                <thead>
+                  <tr>
+                    <th style={{ width: '35px' }}>선택</th>
+                    <th style={{ width: '55px' }}>대여자</th>
+                    <th>상품 정보</th>
+                    <th style={{ width: '35px' }}>수량</th>
+                    <th style={{ width: '75px' }}>대여일</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {itemRentals.length === 0
+                    ? <tr><td colSpan={5} style={{ padding: '16px 0', color: '#aaa', fontSize: '13px' }}>현재 대여 중인 내역이 없습니다.</td></tr>
+                    : itemRentals.map((r, i) => {
+                      const d = r.date ? r.date.substring(5, 10) : '-';
+                      const isChk = checked.some(x => isSameRental(x, r));
+                      return (
+                        <tr key={i}>
+                          <td>
+                            <input type="checkbox" className="rental-check" checked={isChk}
+                              onChange={e => {
+                                if (e.target.checked) setChecked(p => [...p, r]);
+                                else setChecked(p => p.filter(x => !isSameRental(x, r)));
+                              }}
+                              onClick={e => e.stopPropagation()} />
+                          </td>
+                          <td className="fw-bold">{r.renter}</td>
+                          <td className="list-product-info">
+                            <span className="list-product-desc">{r.color} / {r.size}</span>
+                          </td>
+                          <td><span className="qty-badge">{r.qty}</span></td>
+                          <td>
+                            <span className="date-text">{d}</span>
+                            <button className="delete-btn" style={{ position: 'static', marginLeft: '5px' }} onClick={() => handleDeleteRental(r)}>×</button>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  }
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* 준비물 */}
+          <div className="dash-card">
+            <div className="dash-title-row">
+              <span className="dash-title">준비물 (방송/협찬용)</span>
+              <button className="notes-save-btn" onClick={handleSaveSupply}>저장하기</button>
+            </div>
+            <input
+              type="text"
+              id="det-supplies"
+              className="form-control form-control-sm border-0 bg-light fw-bold"
+              placeholder="이미지 위에 표시될 준비물 입력"
+              value={supplyText}
+              onChange={e => setSupplyText(e.target.value)}
+            />
+          </div>
+
+          {/* 대여 바구니 (숫자 클릭 시 노출) */}
+          {cart.length > 0 && (
+            <div id="v-cart-section" className="dash-card" style={{ border: '1.5px solid var(--primary)' }}>
+              <div className="dash-title-row">
+                <span className="dash-title" style={{ color: 'var(--primary)' }}>대여 바구니 (등록 대기)</span>
+                <button className="btn-plus" style={{ background: '#999' }} onClick={() => setCart([])}>×</button>
+              </div>
+              <div id="v-cart-list" className="mb-3">
+                {cart.map((c, idx) => (
+                  <div key={idx} className="cart-item">
+                    <div className="cart-item-info">
+                      {c.color} / {c.size}
+                      <input type="number" className="cart-qty-input" value={c.qty} min="1"
+                        onChange={e => setCart(p => p.map((x, i) => i === idx ? { ...x, qty: Number(e.target.value) } : x))} />
+                    </div>
+                    <button className="delete-btn" style={{ position: 'static', color: '#666' }}
+                      onClick={() => setCart(p => p.filter((_, i) => i !== idx))}>×</button>
+                  </div>
+                ))}
+              </div>
+              <div className="d-flex gap-2">
+                <input type="text" id="cart-renter" className="form-control form-control-sm border-primary"
+                  placeholder="대여자 성함 입력" value={renter} onChange={e => setRenter(e.target.value)} />
+                <button className="btn btn-primary btn-sm fw-bold px-3" style={{ whiteSpace: 'nowrap' }}
+                  onClick={handleSubmitRental}>대여 완료</button>
+              </div>
+            </div>
+          )}
+
+        </div>{/* dash-right */}
+      </div>{/* dash-layout */}
+
+      {/* 착장 등록 모달 */}
+      <OutfitModal isOpen={outfitOpen} onClose={() => setOutfitOpen(false)} onConfirm={handleAddOutfits} />
+
+      {/* 커스텀 확인 창 모달 */}
+      {confirmModal.isOpen && (
+        <div className="custom-modal-overlay" style={{ display: 'flex', zIndex: 1000 }}>
+          <div className="custom-modal" style={{ maxWidth: '400px', width: '90%', padding: '24px' }}>
+            <h5 className="modal-title" style={{ marginBottom: '16px' }}>작업 확인</h5>
+            <div style={{ fontSize: '14px', marginBottom: '24px', lineHeight: '1.5', color: '#333' }}>
+              {confirmModal.message}
+            </div>
+            <div className="modal-footer" style={{ borderTop: 'none', padding: 0, justifyContent: 'flex-end', gap: '8px' }}>
+              <button type="button" className="m-btn m-btn-cancel" style={{ width: 'auto', padding: '8px 16px' }}
+                onClick={() => setConfirmModal({ isOpen: false, message: '', onConfirm: null })}>
+                취소
+              </button>
+              <button type="button" className="m-btn m-btn-confirm" style={{ width: 'auto', padding: '8px 16px' }}
+                onClick={async () => {
+                  if (confirmModal.onConfirm) await confirmModal.onConfirm();
+                  setConfirmModal({ isOpen: false, message: '', onConfirm: null });
+                }}>
+                확인
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Hidden Mobile Capture Card Template (Invisible, off-screen, but layouted for lossless capture) */}
+      <div 
+        ref={captureRef}
+        style={{
+          position: 'absolute',
+          left: '-9999px',
+          top: '-9999px',
+          width: '360px',
+          padding: '20px',
+          background: '#ffffff',
+          borderRadius: '12px',
+          boxShadow: '0 4px 20px rgba(0,0,0,0.1)',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '15px',
+          fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+          color: '#333'
+        }}
+      >
+
         <div>
-          <div className="p-brand">{item.brand}</div>
-          <div className="title">{item.name}</div>
-          <div className="kv"><b>상품코드</b>{item.code}</div>
-          <div className="kv"><b>A/S</b>{item.as}</div>
-          {info?.price && <div className="kv"><b>판매가</b>{Number(info.price).toLocaleString()}원{info.salePrice && info.salePrice !== info.price ? ` → ${Number(info.salePrice).toLocaleString()}원` : ''}</div>}
-          <div className="kv"><a href={item.link} target="_blank" rel="noreferrer">CJ온스타일에서 보기 ↗</a></div>
+          <h2 style={{ fontSize: '18px', fontWeight: '800', margin: '0 0 5px 0', color: '#111' }}>{item.brand} {item.name}</h2>
+          <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+            <span style={{ fontSize: '11px', fontWeight: 'bold', background: '#e0f2fe', color: '#0369a1', padding: '2px 6px', borderRadius: '4px' }}>코드: {item.code}</span>
+            <span style={{ fontSize: '11px', fontWeight: 'bold', background: '#f0fdf4', color: '#15803d', padding: '2px 6px', borderRadius: '4px' }}>위치: {item.location || '-'}</span>
+          </div>
+        </div>
+
+        {(captureImgUrl || mainImgUrl) && (
+          <div style={{ width: '100%', height: '320px', overflow: 'hidden', borderRadius: '8px', border: '1px solid #f1f5f9', display: 'flex', justifyContent: 'center', alignItems: 'center', background: '#f8fafc' }}>
+            <img 
+              src={captureImgUrl || mainImgUrl} 
+              alt="상품이미지" 
+              style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} 
+              crossOrigin="anonymous"
+            />
+          </div>
+        )}
+
+        {noteText && (
+          <div style={{ background: '#f8fafc', padding: '12px', borderRadius: '8px', borderLeft: '4px solid #0284c7' }}>
+            <h4 style={{ fontSize: '12px', fontWeight: 'bold', margin: '0 0 4px 0', color: '#0284c7' }}>상품 특이사항</h4>
+            <p style={{ fontSize: '11px', margin: 0, whiteSpace: 'pre-wrap', lineHeight: '1.4', color: '#475569' }}>{noteText}</p>
+          </div>
+        )}
+
+        <div style={{ marginTop: '5px' }}>
+          <h4 style={{ fontSize: '13px', fontWeight: 'bold', margin: '0 0 8px 0', color: '#1e293b' }}>실시간 재고 현황</h4>
+          {colors.length === 0 ? (
+            <p style={{ fontSize: '12px', color: '#94a3b8', textAlign: 'center', margin: 0, padding: '10px 0' }}>등록된 재고가 없습니다.</p>
+          ) : (
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11px', textAlign: 'center' }}>
+              <thead>
+                <tr style={{ background: '#f8fafc' }}>
+                  <th style={{ padding: '6px', border: '1px solid #e2e8f0', fontWeight: 900, color: '#dc2626' }}>{totalQty}</th>
+                  {sizes.map(s => (
+                    <th key={s} style={{ padding: '6px', border: '1px solid #e2e8f0', fontWeight: 'bold', color: '#475569' }}>{s}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {colors.map(c => (
+                  <tr key={c}>
+                    <td style={{ padding: '6px', border: '1px solid #e2e8f0', fontWeight: 'bold', background: '#f8fafc', color: '#475569' }}>{c}</td>
+                    {sizes.map(s => {
+                      // base는 이미 inventory_history SUM으로 대여(RENT) 반출분이 반영된 값 (이중차감 방지)
+                      const base = stockMap.filter(x => x.color === c && x.size === s).reduce((a, b) => a + Number(b.qty), 0);
+                      const qty  = base;
+                      return (
+                        <td key={s} style={{ padding: '6px', border: '1px solid #e2e8f0', color: qty > 0 ? '#0284c7' : '#94a3b8', fontWeight: qty > 0 ? 'bold' : 'normal' }}>
+                          {qty}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
         </div>
       </div>
 
-      <h6 className="fw-bold">컬러 · 사이즈별 재고 <span className="text-primary">총 {totalQty(item)}개</span></h6>
-      <div style={{ overflowX: 'auto' }}>
-        <table className="matrix">
-          <thead>
-            <tr><th>컬러</th>{sizes.map(s => <th key={s}>{s}</th>)}<th className="total">합계</th></tr>
-          </thead>
-          <tbody>
-            {colors.map(c => (
-              <tr key={c}>
-                <th>{c}</th>
-                {sizes.map(s => {
-                  const v = grid[c][s];
-                  return <td key={s} className={!v ? 'zero' : ''}>{v === undefined ? '' : v}</td>;
-                })}
-                <td className="total">{rowTotal(c)}</td>
-              </tr>
-            ))}
-            <tr><th className="total">합계</th>{sizes.map(s => <td key={s} className="total">{colTotal(s)}</td>)}<td className="total">{totalQty(item)}</td></tr>
-          </tbody>
-        </table>
-      </div>
+      {/* 반출 표지 A4 가로 템플릿 (화면 밖, 클릭 시에만 PNG로 변환) — 1123x794px = A4 가로 @96dpi
+          박스 동봉용 인쇄물이라 색 없이 검정 + Pretendard만 쓴다. */}
+      {isReleaseItem && (() => {
+        const PAGE_W = 1123, PAGE_H = 794, PAD_X = 56, PAD_Y = 48, GAP = 28;
+        const contentW = PAGE_W - PAD_X * 2;
 
-      <h6 className="fw-bold mt-4">편성 ({broadcasts.length}회)</h6>
-      {broadcasts.length === 0 ? <p className="text-muted small">수집된 편성표 범위 안에 방송이 없어요.</p> : (
-        <ul className="bc-list">
-          {broadcasts.map(s => {
-            const d = new Date(s.date);
-            return (
-              <li key={`${s.date}${s.start}${s.channel}`}>
-                <span className="when">{s.date.slice(5).replace('-', '/')}({DAYS[d.getDay()]}) {s.start}</span>
-                <span>{s.channel} · {s.program}</span>
-              </li>
-            );
-          })}
-        </ul>
-      )}
-      {info && (info.prev || info.next) && (
-        <div className="kv mt-2"><b>이전 방송</b>{info.prev || '-'} <b className="ms-3">다음 방송</b>{info.next || '-'}</div>
+        // 글자 폭 추정(em, 넉넉하게): 한글 1, 숫자 0.62, '+' 0.8, 그 외 0.66, 공백 0.3 — 칸 안에 넘치지 않게 글자 크기를 고르는 데 쓴다.
+        const textW = (t: string) => Array.from(String(t)).reduce((w, ch) =>
+          w + (/[\u3131-\uD79D]/.test(ch) ? 1 : /\s/.test(ch) ? 0.3 : /[0-9]/.test(ch) ? 0.62 : /[+]/.test(ch) ? 0.8 : 0.66), 0) || 1;
+        const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, Math.floor(v)));
+
+        const nameText = `${item.brand || ''} ${item.name || ''}`.trim();
+        const nameW = textW(nameText);
+        // 상품명은 크게: 최대 2줄 안에 들어가는 가장 큰 크기 (실제 폭은 추정치의 약 0.9배)
+        const titleSize = clamp((contentW * 2) / (nameW * 1.05), 40, 72);
+        const titleLines = Math.max(1, Math.ceil((nameW * 0.9 * titleSize) / contentW));
+        const titleBlockH = titleLines * titleSize * 1.25 + 20 + 4;
+
+        const rowCount = colors.length + 1; // 헤더 포함
+        const availH = PAGE_H - PAD_Y * 2 - titleBlockH - GAP;
+        const rowH = clamp(availH / rowCount, 40, 150);
+
+        const qtyOf = (c: string, sz: string) =>
+          stockMap.filter(x => x.color === c && x.size === sz).reduce((acc, x) => acc + Number(x.qty), 0);
+
+        // 왼쪽 열: 가장 긴 색상명(또는 총수량)이 한 줄에 들어가게 폭을 잡는다.
+        const labelTexts = [...colors, String(totalQty)];
+        const maxLabelW = Math.max(...labelTexts.map(textW));
+        const labelTarget = clamp(rowH * 0.36, 16, 40);
+        const labelColW = clamp(maxLabelW * labelTarget + 32, 150, 300);
+        const labelFont = clamp(Math.min(labelTarget, (labelColW - 28) / maxLabelW), 14, 40);
+
+        const colW = (contentW - labelColW) / Math.max(sizes.length, 1);
+        const maxSizeW = Math.max(...sizes.map(textW), 1);
+        const maxQtyW = Math.max(...colors.flatMap(c => sizes.map(sz => textW(String(qtyOf(c, sz))))), 1);
+        const headFont = clamp(Math.min(rowH * 0.34, (colW - 24) / maxSizeW), 14, 44);
+        const numFont = clamp(Math.min(rowH * 0.48, (colW - 24) / maxQtyW), 14, 64);
+
+        const bd = '2px solid #000';
+        const td = {
+          border: bd, height: `${rowH}px`, padding: '0 6px', textAlign: 'center' as const,
+          verticalAlign: 'middle' as const, whiteSpace: 'nowrap' as const, overflow: 'hidden', color: '#000',
+        };
+
+        return (
+          <div
+            ref={coverRef}
+            style={{
+              position: 'absolute', left: '-9999px', top: '-9999px',
+              width: `${PAGE_W}px`, height: `${PAGE_H}px`, boxSizing: 'border-box',
+              padding: `${PAD_Y}px ${PAD_X}px`, background: '#fff', color: '#000',
+              display: 'flex', flexDirection: 'column', gap: `${GAP}px`,
+              fontFamily: "'Pretendard', sans-serif",
+            }}
+          >
+            <div style={{ fontSize: `${titleSize}px`, fontWeight: 800, lineHeight: 1.25, letterSpacing: '-0.02em', wordBreak: 'keep-all', borderBottom: '4px solid #000', paddingBottom: '20px' }}>
+              {nameText}
+            </div>
+
+            {colors.length === 0 ? (
+              <div style={{ fontSize: '28px', textAlign: 'center', padding: '40px 0' }}>등록된 재고가 없습니다.</div>
+            ) : (
+              <table style={{ width: '100%', tableLayout: 'fixed', borderCollapse: 'collapse', border: bd }}>
+                <colgroup>
+                  <col style={{ width: `${labelColW}px` }} />
+                  {sizes.map(sz => <col key={sz} />)}
+                </colgroup>
+                <thead>
+                  <tr>
+                    <th style={{ ...td, fontSize: `${labelFont}px`, fontWeight: 800, borderBottom: '4px solid #000' }}>{totalQty}</th>
+                    {sizes.map(sz => (
+                      <th key={sz} style={{ ...td, fontSize: `${headFont}px`, fontWeight: 800, borderBottom: '4px solid #000' }}>{sz}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {colors.map(c => (
+                    <tr key={c}>
+                      <td style={{ ...td, fontSize: `${labelFont}px`, fontWeight: 800 }}>{c}</td>
+                      {sizes.map(sz => {
+                        const qty = qtyOf(c, sz);
+                        return (
+                          <td key={sz} style={{ ...td, fontSize: `${numFont}px`, fontWeight: qty > 0 ? 700 : 300 }}>{qty}</td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        );
+      })()}
+      {/* 반출 박스 라벨 A4 가로 템플릿 — 상품코드 / 상품명 / 총수량을 한 줄씩, 검정 + Pretendard.
+          글자 크기는 캡처 직전에 fitBoxLabel이 실제 폭을 재서 정한다. */}
+      {isReleaseItem && (
+        <div
+          ref={boxRef}
+          style={{
+            position: 'absolute', left: '-9999px', top: '-9999px',
+            width: '1123px', height: '794px', boxSizing: 'border-box',
+            padding: `56px ${BOX_PAD_X}px`, background: '#fff', color: '#000',
+            display: 'flex', flexDirection: 'column', justifyContent: 'center',
+            fontFamily: "'Pretendard', sans-serif",
+          }}
+        >
+          {/* html2canvas가 인라인 SVG를 빠뜨리므로 SVG를 data URL 이미지로 넣는다 */}
+          <img
+            data-box-icon={boxIcon.size}
+            src={boxIconSrc(boxIcon.idx, boxIcon.size)}
+            width={boxIcon.size} height={boxIcon.size} alt=""
+            style={{ position: 'absolute', top: '44px', right: '56px' }}
+          />
+          <div data-fit="code" style={{ fontSize: '150px', fontWeight: 800, lineHeight: 1, letterSpacing: '-0.02em', whiteSpace: 'nowrap', width: 'max-content' }}>
+            {item.code}
+          </div>
+          <div style={{ borderTop: '5px solid #000', margin: '26px 0' }} />
+          <div data-fit="name" style={{ fontSize: '96px', fontWeight: 800, lineHeight: 1.18, letterSpacing: '-0.03em', wordBreak: 'keep-all' }}>
+            {`${item.brand || ''} ${item.name || ''}`.trim()}
+          </div>
+          <div style={{ borderTop: '5px solid #000', margin: '26px 0' }} />
+          <div data-fit="qty" style={{ fontSize: '120px', fontWeight: 800, lineHeight: 1, letterSpacing: '-0.02em', whiteSpace: 'nowrap', width: 'max-content' }}>
+            {totalQty}
+            <span style={{ fontSize: '0.4em', fontWeight: 700, marginLeft: '0.15em' }}>EA</span>
+          </div>
+        </div>
       )}
     </section>
   );

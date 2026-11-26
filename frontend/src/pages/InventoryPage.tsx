@@ -1,90 +1,143 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useCallback } from 'react';
+import { useAppStore } from '../store/useAppStore';
+import { getProductImage } from '../utils/helpers';
 import { useNavigate } from 'react-router-dom';
-import { useAppData, totalQty, NO_IMAGE } from '../data';
 
 const InventoryPage = () => {
-  const { loading, error, inventory, slots, inventoryUpdatedAt } = useAppData();
+  const { 
+    allItems, allStockMap, isLoading, allSupplies,
+    invSearchTerm, invSelectedBrand, invSelectedCate,
+    setInvSearchTerm, setInvSelectedBrand, setInvSelectedCate
+  } = useAppStore();
   const navigate = useNavigate();
-  const [brand, setBrand] = useState('');
-  const [term, setTerm] = useState('');
-  const [onlyOnAir, setOnlyOnAir] = useState(false);
 
-  const items = useMemo(() => Object.values(inventory), [inventory]);
-  const brands = useMemo(() => Array.from(new Set(items.map(i => i.brand).filter(Boolean))).sort(), [items]);
+  const masterItems = useMemo(() => allItems.filter(i => i.isMaster), [allItems]);
 
-  // 상품코드 → 가장 가까운 편성 (편성표 범위 안)
-  const nextBroadcast = useMemo(() => {
-    const m: Record<string, string> = {};
-    const now = new Date();
-    const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-    for (const s of slots) {
-      if (s.date < today) continue;
-      for (const it of s.items) {
-        const when = `${s.date.slice(5).replace('-', '/')} ${s.start}`;
-        if (!m[it.code] || when < m[it.code]) m[it.code] = when;
-      }
+  const brands = useMemo(() => {
+    const bSet = new Set(masterItems.map(i => i.brand).filter(Boolean));
+    return ['전체', ...Array.from(bSet).sort()];
+  }, [masterItems]);
+
+  const categories = useMemo(() => {
+    const cSet = new Set(masterItems.map(i => i.category).filter(Boolean));
+    return ['전체', ...Array.from(cSet).sort()];
+  }, [masterItems]);
+
+  const filteredItems = useMemo(() => {
+    let items = masterItems;
+    
+    // 카테고리가 '반출'인 상품은 카테고리 필터에서 명시적으로 '반출'을 선택했을 때만 노출
+    if (invSelectedCate !== '반출') {
+      items = items.filter(i => i.category !== '반출');
     }
-    return m;
-  }, [slots]);
+    
+    if (invSelectedBrand && invSelectedBrand !== '전체') {
+      items = items.filter(i => i.brand === invSelectedBrand);
+    }
+    if (invSelectedCate && invSelectedCate !== '전체') {
+      items = items.filter(i => i.category === invSelectedCate);
+    }
+    if (invSearchTerm.trim()) {
+      const lower = invSearchTerm.toLowerCase();
+      items = items.filter(i =>
+        (i.name && i.name.toLowerCase().includes(lower)) ||
+        (i.code && String(i.code).toLowerCase().includes(lower)) ||
+        (i.brand && i.brand.toLowerCase().includes(lower)) ||
+        (i.extra_codes && String(i.extra_codes).toLowerCase().includes(lower))
+      );
+    }
+    // 상품코드가 높은 순서대로 정렬
+    return [...items].sort((a, b) => String(b.code).localeCompare(String(a.code), undefined, { numeric: true }));
+  }, [masterItems, invSelectedBrand, invSelectedCate, invSearchTerm]);
 
-  const filtered = useMemo(() => {
-    const t = term.trim().toLowerCase();
-    return items
-      .filter(i => !brand || i.brand === brand)
-      .filter(i => !onlyOnAir || nextBroadcast[i.code])
-      .filter(i => !t || i.name.toLowerCase().includes(t) || i.code.includes(t) || i.brand.toLowerCase().includes(t))
-      .sort((a, b) => b.code.localeCompare(a.code, undefined, { numeric: true }));
-  }, [items, brand, term, onlyOnAir, nextBroadcast]);
+  const handleResetFilter = useCallback(() => {
+    setInvSelectedBrand('');
+    setInvSelectedCate('');
+    setInvSearchTerm('');
+  }, [setInvSelectedBrand, setInvSelectedCate, setInvSearchTerm]);
 
-  if (loading) return <div id="loading-overlay" style={{ display: 'flex' }}><div className="spinner"></div></div>;
-  if (error) return <p className="empty-msg">데이터를 불러오지 못했어요: {error}</p>;
+  if (isLoading) {
+    return (
+      <div id="loading-overlay" style={{ display: 'flex', flexDirection: 'column' }}>
+        <div className="spinner"></div>
+        <div className="mt-2 fw-bold small">CJ PB 데이터 동기화</div>
+      </div>
+    );
+  }
 
-  const sum = filtered.reduce((s, i) => s + totalQty(i), 0);
+  const handleCardClick = (item: any) => {
+    navigate(`/detail/${item.code}`);
+  };
 
   return (
     <section className="page-section active" id="page-inventory">
+      {/* Filter Bar */}
       <div className="card border-0 shadow-sm p-2 mb-2 rounded-3">
         <div className="row g-2">
           <div className="col-6">
-            <select className="form-select form-select-sm border-0 bg-light" value={brand} onChange={e => setBrand(e.target.value)}>
-              <option value="">전체 브랜드</option>
-              {brands.map(b => <option key={b} value={b}>{b}</option>)}
+            <select
+              id="brandSel"
+              className="form-select form-select-sm border-0 bg-light"
+              value={invSelectedBrand}
+              onChange={(e) => setInvSelectedBrand(e.target.value)}
+            >
+              {brands.map(b => <option key={b} value={b === '전체' ? '' : b}>{b}</option>)}
             </select>
           </div>
-          <div className="col-6 d-flex align-items-center">
-            <div className="form-check form-switch m-0">
-              <input className="form-check-input" type="checkbox" id="onAir" checked={onlyOnAir} onChange={e => setOnlyOnAir(e.target.checked)} />
-              <label className="form-check-label small" htmlFor="onAir">방송 예정만</label>
-            </div>
+          <div className="col-6">
+            <select
+              id="cateSel"
+              className="form-select form-select-sm border-0 bg-light"
+              value={invSelectedCate}
+              onChange={(e) => setInvSelectedCate(e.target.value)}
+            >
+              {categories.map(c => <option key={c} value={c === '전체' ? '' : c}>{c}</option>)}
+            </select>
           </div>
           <div className="col-12">
-            <input type="text" className="form-control form-control-sm border-0 bg-light" placeholder="상품명, 브랜드, 상품코드 검색"
-              value={term} onChange={e => setTerm(e.target.value)} />
+            <input
+              type="text"
+              id="invSearch"
+              className="form-control form-control-sm border-0 bg-light"
+              placeholder="상품명, 브랜드, 코드 검색"
+              value={invSearchTerm}
+              onChange={(e) => setInvSearchTerm(e.target.value)}
+            />
           </div>
         </div>
       </div>
-      <div className="updated-at">상품 {filtered.length}개 · 총 {sum.toLocaleString()}개 · 재고 기준 {inventoryUpdatedAt}</div>
 
-      {filtered.length === 0 ? <p className="empty-msg">검색 결과가 없어요.</p> : (
-        <div className="product-grid" style={{ paddingBottom: 20 }}>
-          {filtered.map(it => {
-            const q = totalQty(it);
-            return (
-              <div key={it.code} className="p-card" onClick={() => navigate(`/detail/${it.code}`)}>
-                <div className="p-img-box">
-                  <img src={it.image || NO_IMAGE} onError={e => { (e.target as HTMLImageElement).src = NO_IMAGE; }} className="p-img" alt={it.name} />
-                  <span className={`qty-badge ${q === 0 ? 'zero' : ''}`}>재고 {q}</span>
-                </div>
-                <div className="p-info">
-                  <div className="p-brand">{it.brand}</div>
-                  <div className="p-name">{it.name}</div>
-                  <div className="p-meta">{nextBroadcast[it.code] ? `📺 ${nextBroadcast[it.code]}` : it.code}</div>
-                </div>
+      {/* Product Grid */}
+      <div id="inventoryContainer" className="product-grid" style={{ paddingBottom: '20px' }}>
+        {filteredItems.map(item => {
+          const supplyObj = allSupplies?.find(s => String(s.code) === String(item.code));
+          const overlay = (supplyObj && supplyObj.text)
+            ? <div className="supplies-overlay">{supplyObj.text}</div>
+            : null;
+
+          return (
+            <div key={item.code} className="p-card" onClick={() => handleCardClick(item)}>
+              <div className="p-img-box">
+                <img
+                  src={getProductImage(item) || 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200"><rect width="200" height="200" fill="%23f8f9fa"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" font-family="sans-serif" font-size="14" fill="%23adb5bd">No Image</text></svg>'}
+                  className="p-img"
+                  alt={item.name}
+                />
+                {overlay}
               </div>
-            );
-          })}
-        </div>
-      )}
+              <div className="p-info">
+                <div className="p-brand">{item.brand || ''}</div>
+                <div className="p-name">{item.name || ''}</div>
+                {item.extra_codes && (
+                  <div style={{ fontSize: '10px', color: '#0284c7', marginTop: '2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={`연계코드: ${item.extra_codes}`}>
+                    연계: {item.extra_codes}
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
     </section>
   );
 };
