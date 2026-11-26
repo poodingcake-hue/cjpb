@@ -1,8 +1,8 @@
 """크롤링 결과(data/*.csv)로 앱이 읽는 정적 데이터를 만든다. (봇 전용 파일)
 
 frontend/public/data.json        롯데 앱과 같은 형식: items = 상품(isMaster) + 편성(isMaster=false)
-                                 - 편성: 오늘 이후, TV LIVE(CJ온스타일)·라이브쇼(CJ온스타일 라이브)만
-                                 - 상품: 위 편성에 나오고 A/S 책임자에 'CJ'가 들어간 상품
+                                 - 편성: 오늘 이후, TV LIVE(CJ온스타일)만, 02:00~05:59 시작 방송 제외
+                                 - 상품: 위 편성에 나오고 A/S 책임자에 'CJ ENM'/'CJ온스타일'이 들어간 상품
 frontend/public/seed_stock.json  초기 임의 재고 {상품코드: [{color,size,qty}]}
                                  - 처음 보는 상품·옵션만 추가(0~8 임의), 기존 값은 절대 바꾸지 않음
 
@@ -38,13 +38,20 @@ def read_csv(name):
         return list(csv.DictReader(f))
 
 
-# 편성표에 보여줄 채널 (CJ온스타일+ 는 제외) → 화면 표시 이름
-CHANNELS = {"CJ온스타일": "TV LIVE", "CJ온스타일 라이브": "라이브쇼"}
+# 편성표에 보여줄 채널 → 화면 표시 이름 (CJ온스타일+, CJ온스타일 라이브(라이브쇼)는 제외)
+CHANNELS = {"CJ온스타일": "TV LIVE"}
+# 이 시간대에 시작하는 방송은 제외 (02:00 ~ 05:59, 심야 재방)
+SKIP_HOURS = range(2, 6)
 
 
 def is_ours(as_text):
-    """A/S 책임자에 'CJ'가 들어가면 우리 상품 (CJ ENM, CJ온스타일 고객센터, CJ몰 등)."""
-    return "CJ" in re.sub(r"\s+", "", (as_text or "")).upper()
+    """A/S 책임자에 'CJ ENM' 또는 'CJ온스타일'이 들어가면 우리 상품. (CJ몰 고객센터 등은 제외)"""
+    t = re.sub(r"\s+", "", (as_text or "")).upper()
+    return "CJENM" in t or "CJ온스타일" in t
+
+
+def in_skip_hours(start):
+    return int(start[11:13]) in SKIP_HOURS
 
 
 def image_url(code, given=""):
@@ -80,7 +87,7 @@ def main():
     stamp = now.strftime("%Y-%m-%d %H:%M")
     today = now.strftime("%Y-%m-%d")
 
-    sched = [r for r in read_csv("cj_schedule.csv") if r["채널"] in CHANNELS]
+    sched = [r for r in read_csv("cj_schedule.csv") if r["채널"] in CHANNELS and not in_skip_hours(r["방송시작"])]
     on_air = {r["상품코드"] for r in sched}
     items = {r["상품코드"]: r for r in read_csv("cj_items.csv")}
     options = {}
@@ -94,7 +101,7 @@ def main():
     if os.path.exists(DATA_JSON):
         with open(DATA_JSON, encoding="utf-8") as f:
             for it in json.load(f).get("items", []):
-                if it.get("isMaster"):
+                if it.get("isMaster") and is_ours(it.get("as")):
                     old_masters[str(it["code"])] = it
 
     seed = {"updatedAt": stamp, "stock": {}}
@@ -165,6 +172,12 @@ def main():
             "location": "-",
             "isMaster": False,
         })
+
+    removed = [c for c in list(stock) if c not in masters]
+    for c in removed:
+        del stock[c]
+    if removed:
+        print(f"🧹 우리 상품 조건에서 빠진 상품 {len(removed)}개의 초기재고 정리")
 
     master_list = sorted(masters.values(), key=lambda m: m["code"], reverse=True)
     data = {
