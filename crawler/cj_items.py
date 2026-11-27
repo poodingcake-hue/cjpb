@@ -14,6 +14,7 @@
   → cj_category.csv (상품코드·카테고리·이미지·가격) 로 저장하고, 상세 수집 대상에도 추가
 
 환경 변수
+  CJ_SEARCH_KEYWORDS  검색어로도 수집 (기본: 더엣지) → cj_category.csv 에 카테고리 '검색:더엣지' 로 저장
   CJ_CATEGORIES   수집할 카테고리 (기본: G02365 패션의류/언더웨어, G02366 잡화/보석)
   CJ_ITEMS_LIMIT  테스트용으로 상품 수 제한 (기본: 전부)
 """
@@ -24,6 +25,7 @@ import html
 import json
 import os
 import re
+from urllib.parse import quote
 
 from playwright.async_api import async_playwright
 
@@ -42,6 +44,9 @@ COMPLIANCE_URL = "https://item.cjonstyle.com/api/explain/compliance-info?itemCd=
 CATEGORY_CSV = "cj_category.csv"
 CATEGORY_URL = ("https://search.cjonstyle.com/search-web/cjonstyle/category/items.json"
                 "?sc={sc}&s=1000&adds=false&og=false&k=&chn={chn}&employeeDiscountRate=0")
+SEARCH_URL = ("https://search.cjonstyle.com/search-web/cjonstyle/search/items.json"
+              "?k={k}&s=1000&adds=false&og=false&chn={chn}&employeeDiscountRate=0")
+KEYWORDS = [k.strip() for k in os.environ.get("CJ_SEARCH_KEYWORDS", "더엣지").split(",") if k.strip()]
 CATEGORIES = [c.strip() for c in os.environ.get("CJ_CATEGORIES", "G02365,G02366").split(",") if c.strip()]
 
 COLOR_WORDS = ("색상", "컬러", "COLOR", "색")
@@ -219,12 +224,17 @@ async def main():
 
         # 카테고리 전체 상품 (한 번에 최대 1000개까지 받음)
         cate_rows = []
-        for sc in CATEGORIES:
-            d = await get_json(ctx.request, CATEGORY_URL.format(sc=sc, chn=CHN), sem,
-                               f"https://display.cjonstyle.com/nfront/category/categoryMain?dpCateId={sc}")
+        sources = [(sc, CATEGORY_URL.format(sc=sc, chn=CHN),
+                    f"https://display.cjonstyle.com/nfront/category/categoryMain?dpCateId={sc}") for sc in CATEGORIES]
+        sources += [(f"검색:{k}", SEARCH_URL.format(k=quote(k), chn=CHN),
+                     f"https://display.cjonstyle.com/nfront/search/searchAllList?k={quote(k)}") for k in KEYWORDS]
+        for sc, url, ref in sources:
+            d = await get_json(ctx.request, url, sem, ref)
             res = (d or {}).get("result") or {}
             rows = res.get("rowDatas") or []
-            print(f"📂 카테고리 {sc}: {len(rows)}개 (전체 {res.get('totalCount')})")
+            total = res.get("totalCount")
+            warn = " ⚠️ 전체보다 적게 받음" if isinstance(total, int) and len(rows) < total else ""
+            print(f"📂 {sc}: {len(rows)}개 (전체 {total}){warn}")
             for x in rows:
                 img = x.get("pmgItemImgUrl") or ""
                 if img and not img.startswith("http"):

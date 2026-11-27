@@ -2,7 +2,7 @@
 
 frontend/public/data.json        롯데 앱과 같은 형식: items = 상품(isMaster) + 편성(isMaster=false)
                                  - 편성: 오늘 이후, TV LIVE(CJ온스타일)만, 02:00~05:59 시작 방송 제외
-                                 - 상품: 위 편성 또는 카테고리(cj_category.csv: 패션의류·잡화)에 있고
+                                 - 상품: 위 편성 또는 카테고리(cj_category.csv: 패션의류·잡화·검색 '더엣지')에 있고
                                    A/S 책임자에 'CJ'가 들어간 상품 (CJ몰 고객센터 제외) = 직매입
 frontend/public/seed_stock.json  초기 임의 재고 {상품코드: [{color,size,qty}]}
                                  - 처음 보는 상품·옵션만 추가(0~8 임의), 기존 값은 절대 바꾸지 않음
