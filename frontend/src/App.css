@@ -1099,3 +1099,13 @@ a { color: var(--cj-violet); }
         display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
     }
 }
+@media (max-width: 767px) {
+    /* 고정되는 날짜 줄도 상품 줄처럼 화면 끝까지 (양옆으로 사진이 비치지 않게) */
+    .date-scroller {
+        margin: 0 -5vw;
+        padding: 8px 5vw;
+        background: #fff;
+        border-bottom: 1px solid var(--cj-line);
+    }
+    .date-scroller .date-btn.active { box-shadow: none; }
+}
