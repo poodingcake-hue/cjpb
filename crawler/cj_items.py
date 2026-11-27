@@ -14,7 +14,7 @@
   → cj_category.csv (상품코드·카테고리·이미지·가격) 로 저장하고, 상세 수집 대상에도 추가
 
 환경 변수
-  CJ_SEARCH_KEYWORDS  검색어로도 수집 (기본: 더엣지) → cj_category.csv 에 카테고리 '검색:더엣지' 로 저장
+  CJ_SEARCH_KEYWORDS  검색어로도 수집 (기본: 더엣지) + 현재 재고에 있는 브랜드 전부 자동 검색 → cj_category.csv 에 카테고리 '검색:더엣지' 로 저장
   CJ_CATEGORIES   수집할 카테고리 (기본: G02365 패션의류/언더웨어, G02366 잡화/보석)
   CJ_ITEMS_LIMIT  테스트용으로 상품 수 제한 (기본: 전부)
 """
@@ -47,6 +47,16 @@ CATEGORY_URL = ("https://search.cjonstyle.com/search-web/cjonstyle/category/item
 SEARCH_URL = ("https://search.cjonstyle.com/search-web/cjonstyle/search/items.json"
               "?k={k}&s=1000&adds=false&og=false&chn={chn}&employeeDiscountRate=0")
 KEYWORDS = [k.strip() for k in os.environ.get("CJ_SEARCH_KEYWORDS", "더엣지").split(",") if k.strip()]
+APP_DATA = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "frontend", "public", "data.json")
+
+
+def stock_brands():
+    """현재 재고(앱 data.json 상품)에 있는 브랜드 전부 → 검색어로 사용."""
+    try:
+        with open(APP_DATA, encoding="utf-8") as f:
+            return sorted({(m.get("brand") or "").strip() for m in json.load(f).get("items", []) if m.get("isMaster")} - {""})
+    except Exception:
+        return []
 CATEGORIES = [c.strip() for c in os.environ.get("CJ_CATEGORIES", "G02365,G02366").split(",") if c.strip()]
 
 COLOR_WORDS = ("색상", "컬러", "COLOR", "색")
@@ -227,7 +237,7 @@ async def main():
         sources = [(sc, CATEGORY_URL.format(sc=sc, chn=CHN),
                     f"https://display.cjonstyle.com/nfront/category/categoryMain?dpCateId={sc}") for sc in CATEGORIES]
         sources += [(f"검색:{k}", SEARCH_URL.format(k=quote(k), chn=CHN),
-                     f"https://display.cjonstyle.com/nfront/search/searchAllList?k={quote(k)}") for k in KEYWORDS]
+                     f"https://display.cjonstyle.com/nfront/search/searchAllList?k={quote(k)}") for k in dict.fromkeys(KEYWORDS + stock_brands())]
         for sc, url, ref in sources:
             d = await get_json(ctx.request, url, sem, ref)
             res = (d or {}).get("result") or {}
