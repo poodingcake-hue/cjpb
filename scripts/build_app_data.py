@@ -68,6 +68,14 @@ def guess_category(name):
     return "잡화"
 
 
+def clean_name(name):
+    """상품명에서 [최초가79,900] 같은 대괄호 부분을 전부 빼고 순수 상품명만 남긴다."""
+    raw = name or ""
+    out = re.sub(r"\s*\[[^\]]*\]\s*", " ", raw)
+    out = re.sub(r"\s+", " ", out).strip()
+    return out or raw.strip()
+
+
 def random_qty(key):
     """같은 단품이면 매번 같은 '임의' 수량 (0~8)."""
     return int(hashlib.md5(key.encode()).hexdigest(), 16) % 9
@@ -102,6 +110,7 @@ def main():
         with open(DATA_JSON, encoding="utf-8") as f:
             for it in json.load(f).get("items", []):
                 if it.get("isMaster") and is_ours(it.get("as")):
+                    it["name"] = clean_name(it.get("name"))
                     old_masters[str(it["code"])] = it
 
     seed = {"updatedAt": stamp, "stock": {}}
@@ -124,7 +133,7 @@ def main():
             "code": code,
             "image": image_url(code, sched_img.get(code, "")),
             "brand": it["브랜드"],
-            "name": it["상품명"],
+            "name": clean_name(it["상품명"]),
             "category": (old_masters.get(code) or {}).get("category") or guess_category(it["상품명"]),
             "colors": ",".join(colors),
             "sizes": ", ".join(sizes),
@@ -160,7 +169,7 @@ def main():
             "code": r["상품코드"],
             "image": image_url(r["상품코드"], r.get("이미지", "")),
             "brand": r["브랜드"],
-            "name": r["상품명"],
+            "name": clean_name(r["상품명"]),
             "category": "",
             "colors": "",
             "sizes": "",
