@@ -202,7 +202,7 @@ const SchedulePage = () => {
                     </svg>
                   </button>
                 </div>
-                <div className="product-grid">
+                <div className="product-grid schedule-grid">
                   {getRenderItems(time).map((rawItem: any) => {
                     const isOwned = masterCodes.has(String(rawItem.code));
                     const displayItem = isOwned ? getDisplayItem(rawItem) : rawItem;
