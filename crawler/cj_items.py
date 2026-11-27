@@ -9,7 +9,12 @@
   display.cjonstyle.com/c/rest/item/{code}/unitItemsStock.json   단품별 재고
   item.cjonstyle.com/api/explain/compliance-info                 상품정보제공고시(A/S 책임자 등)
 
+카테고리 상품도 함께 수집 (편성에 안 나와도 우리 상품이면 재고 등록용)
+  search.cjonstyle.com/.../category/items.json?sc={카테고리}     카테고리 전체 상품 목록
+  → cj_category.csv (상품코드·카테고리·이미지·가격) 로 저장하고, 상세 수집 대상에도 추가
+
 환경 변수
+  CJ_CATEGORIES   수집할 카테고리 (기본: G02365 패션의류/언더웨어, G02366 잡화/보석)
   CJ_ITEMS_LIMIT  테스트용으로 상품 수 제한 (기본: 전부)
 """
 import asyncio
@@ -33,6 +38,11 @@ OPTIONS_URL = ("https://display.cjonstyle.com/c/rest/item/{code}/options.json"
                "?channelCode={chn}&isEmployee=false&inflowCode=I0619&employeeDiscountRate=0")
 STOCK_URL = "https://display.cjonstyle.com/c/rest/item/{code}/unitItemsStock.json?channelCode={chn}"
 COMPLIANCE_URL = "https://item.cjonstyle.com/api/explain/compliance-info?itemCd={code}&chnCd={chn}"
+
+CATEGORY_CSV = "cj_category.csv"
+CATEGORY_URL = ("https://search.cjonstyle.com/search-web/cjonstyle/category/items.json"
+                "?sc={sc}&s=1000&adds=false&og=false&k=&chn={chn}&employeeDiscountRate=0")
+CATEGORIES = [c.strip() for c in os.environ.get("CJ_CATEGORIES", "G02365,G02366").split(",") if c.strip()]
 
 COLOR_WORDS = ("색상", "컬러", "COLOR", "색")
 SIZE_WORDS = ("사이즈", "SIZE", "치수", "크기", "호수")
@@ -197,7 +207,6 @@ async def main():
     limit = int(os.environ.get("CJ_ITEMS_LIMIT", "0") or 0)
     if limit:
         items = items[:limit]
-    print(f"🧾 상품 {len(items)}개 상세 수집 시작")
 
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
@@ -207,6 +216,35 @@ async def main():
         await page.wait_for_timeout(1500)
 
         sem = asyncio.Semaphore(8)
+
+        # 카테고리 전체 상품 (한 번에 최대 1000개까지 받음)
+        cate_rows = []
+        for sc in CATEGORIES:
+            d = await get_json(ctx.request, CATEGORY_URL.format(sc=sc, chn=CHN), sem,
+                               f"https://display.cjonstyle.com/nfront/category/categoryMain?dpCateId={sc}")
+            res = (d or {}).get("result") or {}
+            rows = res.get("rowDatas") or []
+            print(f"📂 카테고리 {sc}: {len(rows)}개 (전체 {res.get('totalCount')})")
+            for x in rows:
+                img = x.get("pmgItemImgUrl") or ""
+                if img and not img.startswith("http"):
+                    img = "https://image.cjonstyle.net/" + img.lstrip("/")
+                cate_rows.append({
+                    "상품코드": str(x.get("itemCd") or ""), "카테고리": sc,
+                    "상품명": x.get("itemNm") or "", "브랜드": x.get("repBrandNm") or "",
+                    "이미지": img, "판매가": x.get("pmgSalePrice") or x.get("pmgCustomerPrice") or "",
+                })
+        cate_rows = [r for r in cate_rows if r["상품코드"]]
+        if cate_rows:
+            with open(CATEGORY_CSV, "w", encoding="utf-8-sig", newline="") as f:
+                w = csv.DictWriter(f, fieldnames=list(cate_rows[0].keys()))
+                w.writeheader()
+                w.writerows(cate_rows)
+        for r in cate_rows:
+            if r["상품코드"] not in seen:
+                seen.add(r["상품코드"])
+                items.append(r)
+        print(f"🧾 상품 {len(items)}개 상세 수집 시작")
         results = await asyncio.gather(*(collect(ctx.request, it, sem, i == 0) for i, it in enumerate(items)))
         await browser.close()
 

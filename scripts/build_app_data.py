@@ -2,7 +2,8 @@
 
 frontend/public/data.json        롯데 앱과 같은 형식: items = 상품(isMaster) + 편성(isMaster=false)
                                  - 편성: 오늘 이후, TV LIVE(CJ온스타일)만, 02:00~05:59 시작 방송 제외
-                                 - 상품: 위 편성에 나오고 A/S 책임자에 'CJ'가 들어간 상품 (CJ몰 고객센터 제외)
+                                 - 상품: 위 편성 또는 카테고리(cj_category.csv: 패션의류·잡화)에 있고
+                                   A/S 책임자에 'CJ'가 들어간 상품 (CJ몰 고객센터 제외) = 직매입
 frontend/public/seed_stock.json  초기 임의 재고 {상품코드: [{color,size,qty}]}
                                  - 처음 보는 상품·옵션만 추가(0~8 임의), 기존 값은 절대 바꾸지 않음
 
@@ -97,12 +98,18 @@ def main():
 
     sched = [r for r in read_csv("cj_schedule.csv") if r["채널"] in CHANNELS and not in_skip_hours(r["방송시작"])]
     on_air = {r["상품코드"] for r in sched}
+    cate = {r["상품코드"]: r for r in read_csv("cj_category.csv")}
+    eligible = on_air | set(cate)
     items = {r["상품코드"]: r for r in read_csv("cj_items.csv")}
     options = {}
     for o in read_csv("cj_item_options.csv"):
         options.setdefault(o["상품코드"], []).append(o)
     sched_img = {r["상품코드"]: r.get("이미지", "") for r in sched if r.get("이미지")}
-    price = {r["상품코드"]: r.get("할인가") or r.get("판매가") for r in sched}
+    price = {c: r.get("판매가") for c, r in cate.items()}
+    price.update({r["상품코드"]: r.get("할인가") or r.get("판매가") for r in sched})
+    for c, r in cate.items():
+        if r.get("이미지") and c not in sched_img:
+            sched_img[c] = r["이미지"]
 
     # 이전 data.json 의 상품도 유지 (편성에서 사라져도 재고 상품은 계속 보이게)
     old_masters = {}
@@ -122,7 +129,7 @@ def main():
     masters = dict(old_masters)
     new_items = new_opts = 0
     for code, it in items.items():
-        if code not in on_air or not is_ours(it.get("A/S 책임자")):
+        if code not in eligible or not is_ours(it.get("A/S 책임자")):
             continue
         opts = options.get(code, [])
         colors = uniq(o["색상"] or o["옵션명"] for o in opts)
@@ -132,7 +139,7 @@ def main():
         masters[code] = {
             "code": code,
             "image": image_url(code, sched_img.get(code, "")),
-            "brand": it["브랜드"],
+            "brand": it["브랜드"] or (cate.get(code) or {}).get("브랜드", ""),
             "name": clean_name(it["상품명"]),
             "category": (old_masters.get(code) or {}).get("category") or guess_category(it["상품명"]),
             "colors": ",".join(colors),
@@ -189,6 +196,8 @@ def main():
         print(f"🧹 우리 상품 조건에서 빠진 상품 {len(removed)}개의 초기재고 정리")
 
     master_list = sorted(masters.values(), key=lambda m: m["code"], reverse=True)
+    from_cate = sum(1 for c in masters if c in cate and c not in on_air)
+    print(f"📦 우리 상품 {len(masters)}개 (편성 없이 카테고리에서만 찾은 것 {from_cate}개), 새 상품 {new_items}개, 새 옵션 {new_opts}개")
     data = {
         "updatedAt": stamp,
         "brands": sorted({m["brand"] for m in master_list if m["brand"]}),

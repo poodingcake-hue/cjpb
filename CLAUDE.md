@@ -8,14 +8,14 @@
   - `src/api/client.ts` — 롯데 `apiClient` 대체 어댑터 (이미지 업로드→uploads/, AI 기능은 미지원 안내)
   - `src/store/useAppStore.ts` — 롯데와 같은 인터페이스, 저장 위치만 GitHub
   - `src/components/TokenButton.tsx` — 저장용 GitHub 토큰 입력 (기기별, localStorage)
-- `crawler/` — CJ 편성표·상품 상세 크롤러 (`CJCRAWLING-` 저장소에서 복사)
+- `crawler/` — CJ 편성표·상품 상세 크롤러 (cj_items.py 가 카테고리 목록 `search.cjonstyle.com/.../category/items.json` 도 받아 `data/cj_category.csv` 저장) (`CJCRAWLING-` 저장소에서 복사)
 - `scripts/build_app_data.py` — 크롤링 결과 → `frontend/public/data.json`(상품+편성), `seed_stock.json`(초기 임의 재고)
 
 ## 데이터 파일
 
 | 파일 | 누가 쓰나 | 내용 |
 |---|---|---|
-| `frontend/public/data.json` | 봇 | 롯데와 같은 형식. 편성: 오늘 이후 **TV LIVE(CJ온스타일)만** (CJ온스타일+·라이브쇼 제외), **02:00~05:59 시작 방송 제외**, `channel` 필드에 표시 이름. 상품(isMaster): 그 편성에 나오고 **A/S 책임자에 'CJ'가 들어간** 상품, 단 **'CJ몰'(CJ몰 고객센터)은 제외** |
+| `frontend/public/data.json` | 봇 | 롯데와 같은 형식. 편성: 오늘 이후 **TV LIVE(CJ온스타일)만** (CJ온스타일+·라이브쇼 제외), **02:00~05:59 시작 방송 제외**, `channel` 필드에 표시 이름. 상품(isMaster): 그 편성 또는 **카테고리 G02365(패션의류)·G02366(잡화)** 에 있고 **A/S 책임자에 'CJ'가 들어간** 상품(=직매입), 단 **'CJ몰'(CJ몰 고객센터)은 제외** |
 | `frontend/public/seed_stock.json` | 봇 | 초기 임의 재고 0~8. 새 상품·옵션만 추가, **기존 값 절대 변경 안 함** |
 | `db/products.json` | 앱 | 상품등록·수정. 자동 상품보다 우선. `deleted: true` 면 숨김 |
 | `db/history.json` | 앱 | 재고 이력 (IN / RENT 음수 / RETURN 양수+ref_id / ADJUST) |
